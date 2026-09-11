@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AloCsvEditor</RootNamespace>
+    <AssemblyName>AloCsvEditor</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- MSB3277 是 WebView2 包（内含 net5.0 时代的 WPF 程序集）与 .NET 10 的已知无害冲突，
+         构建已自动统一到框架版本；本项目只用 WinForms 控件，不加载 WPF 程序集，故屏蔽。 -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <!-- LibraryImport 源生成 P/Invoke 需要；本项目不手写 unsafe 代码。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- 前端资源随 exe 发布，运行时通过虚拟域名加载 -->
+  <ItemGroup>
+    <Content Include="wwwroot\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,120 @@
+// CSV 解析器 + 序列化器（DESIGN.md §6.4：RFC 4180 + 容错）。
+// 零 DOM 依赖：可被 Node 直接 import 跑单测（tools/csvtest/run.mjs）。
+
+// 解析：状态机单遍扫描。
+//   状态 0=字段开始，1=普通字段中，2=引号字段中，3=引号结束。
+//   容错规则：引号未闭合/裸引号后杂散字符一律并入字段并计 warnings（Excel 式宽容，不丢数据）。
+//   参差行按最大列数补 ""。
+// 返回 {rows, maxCols, warnings, endsWithNewline}。
+export function parse(text, delimiter = ',') {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let st = 0;
+  let warnings = 0;
+  let maxCols = 0;
+  const n = text.length;
+
+  const pushField = () => {
+    row.push(field);
+    field = '';
+  };
+  const pushRow = () => {
+    rows.push(row);
+    if (row.length > maxCols) maxCols = row.length;
+    row = [];
+  };
+  // 换行结束当前字段+行，回到"字段开始"。
+  const endRow = () => {
+    pushField();
+    pushRow();
+    st = 0;
+  };
+
+  for (let i = 0; i < n; i++) {
+    const ch = text[i];
+    if (st === 0) {
+      if (ch === '"') {
+        st = 2;
+      } else if (ch === delimiter) {
+        pushField();
+      } else if (ch === '\r') {
+        if (text[i + 1] === '\n') i++; // CRLF 算一个换行
+        endRow();
+      } else if (ch === '\n') {
+        endRow();
+      } else {
+        field += ch;
+        st = 1;
+      }
+    } else if (st === 1) {
+      if (ch === delimiter) {
+        pushField();
+        st = 0;
+      } else if (ch === '\r') {
+        if (text[i + 1] === '\n') i++;
+        endRow();
+      } else if (ch === '\n') {
+        endRow();
+      } else {
+        field += ch; // 普通字段里的引号是普通字符
+      }
+    } else if (st === 2) {
+      if (ch === '"') {
+        st = 3;
+      } else {
+        field += ch; // 引号内换行/分隔符都是内容
+      }
+    } else {
+      // st === 3 引号结束
+      if (ch === '"') {
+        field += '"'; // 转义："" 表示一个引号
+        st = 2;
+      } else if (ch === delimiter) {
+        pushField();
+        st = 0;
+      } else if (ch === '\r') {
+        if (text[i + 1] === '\n') i++;
+        endRow();
+      } else if (ch === '\n') {
+        endRow();
+      } else {
+        // 容错：闭合引号后紧跟杂散字符，并入字段。
+        warnings++;
+        field += ch;
+        st = 1;
+      }
+    }
+  }
+
+  // 收尾：文件末尾的字段/行。引号未闭合也容错收下。
+  if (st === 2 || st === 3) warnings += st === 2 ? 1 : 0;
+  const endsWithNewline = n > 0 && (text[n - 1] === '\n' || text[n - 1] === '\r');
+  // 文件以换行结尾时不产生额外空行：此时 st===0 且无待写内容。
+  if (st !== 0 || field !== '' || row.length > 0) {
+    pushField();
+    pushRow();
+  }
+
+  // 参差行补齐到最大列数。
+  for (const r of rows) {
+    while (r.length < maxCols) r.push('');
+  }
+  return { rows, maxCols, warnings, endsWithNewline };
+}
+
+// 序列化引号策略（最小化 diff）：仅当字段含分隔符/引号/换行/回车时加引号，内部引号双写。
+// 首尾空格不加引号（与 Excel 行为一致）。
+export function quoteIfNeeded(value, delimiter) {
+  const f = String(value ?? '');
+  if (f.includes(delimiter) || f.includes('"') || f.includes('\n') || f.includes('\r')) {
+    return '"' + f.replace(/"/g, '""') + '"';
+  }
+  return f;
+}
+
+export function serialize(rows, { delimiter = ',', newline = '\r\n', trailingNewline = true } = {}) {
+  if (rows.length === 0) return '';
+  const body = rows.map((r) => r.map((f) => quoteIfNeeded(f, delimiter)).join(delimiter)).join(newline);
+  return trailingNewline ? body + newline : body;
+}

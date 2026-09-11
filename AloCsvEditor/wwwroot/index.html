@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>AloCsvEditor</title>
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+  <div id="app">
+    <div id="titlebar">
+      <svg id="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/></svg>
+      <span id="file-label">未打开文件</span>
+      <span class="spacer"></span>
+      <button id="win-min" title="最小化"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M1 6h10"/></svg></button>
+      <button id="win-max" title="最大化/还原"><svg class="g-max" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="1.5" width="9" height="9" rx="1"/></svg><svg class="g-restore" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.5" y="1" width="7.5" height="7.5" rx="1"/><path d="M1 4.5V11h6.5"/></svg></button>
+      <button id="win-close" title="关闭"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"/></svg></button>
+    </div>
+    <div id="toolbar" role="toolbar">
+      <div class="tb-group">
+        <button id="btn-new" class="icon-btn" title="新建空文档">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 11v6M9 14h6"/></svg>
+
+        </button>
+        <button id="btn-open" class="icon-btn" title="打开 CSV 文件">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+
+        </button>
+        <button id="btn-save" class="icon-btn" title="保存 (Ctrl+S)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+
+        </button>
+        <button id="btn-saveas" class="icon-btn" title="另存为 (Ctrl+Shift+S)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="M9 15h6"/></svg>
+
+        </button>
+      </div>
+      <div class="tb-group">
+        <button id="btn-format" class="icon-btn" title="编码 / 分隔符（切换会重载当前文件）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        </button>
+      </div>
+      <div class="tb-group" id="tb-filter">
+        <input id="filter-text" placeholder="筛选…" title="按关键字过滤行（回车立即执行，Esc 清除）">
+        <select id="filter-scope" title="筛选作用列"></select>
+      </div>
+      <span class="spacer"></span>
+      <button id="btn-header" class="toggle icon-btn" title="首行为表头（冻结+排序排除），点击切换">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M3 6.2V9h18V6.2z" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button id="btn-cross" class="toggle icon-btn" title="十字高亮：高亮活动格整行整列，点击切换">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="6"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      </button>
+      <button id="btn-zebra" class="toggle icon-btn" title="斑马纹：奇偶行交错底色，点击切换">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M3 14h18"/></svg>
+      </button>
+      <button id="btn-theme" class="icon-btn" title="切换亮色/暗色">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" title="设置">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+      </button>
+    </div>
+    <div id="format-panel" hidden>
+      <div class="sp-title">编码 / 分隔符</div>
+      <label>编码 <select id="sel-encoding" title="切换编码会按新编码重新载入当前文件"></select></label>
+      <label>分隔符 <select id="sel-delimiter" title="切换分隔符会按新分隔符重新解析当前文件"></select></label>
+    </div>
+    <div id="grid-host">
+      <!-- M5 起网格挂在这里；M3/M4 显示提示语 -->
+      <div class="empty-hint">打开 CSV 文件开始（工具栏“打开”，或把文件拖进来，或双击 csv 文件）</div>
+    </div>
+    <div id="statusbar">
+      <span id="st-file">未打开文件</span>
+      <span id="st-meta"></span>
+      <span class="spacer"></span>
+      <span id="st-clear-filter" title="清除筛选">✕ 清除筛选</span>
+      <span id="st-msg">就绪</span>
+    </div>
+    <div id="findbar" hidden>
+      <input id="find-text" placeholder="查找">
+      <span id="find-count"></span>
+      <button id="find-prev" title="上一个 (Shift+Enter)">↑</button>
+      <button id="find-next" title="下一个 (Enter)">↓</button>
+      <input id="find-replace" placeholder="替换为">
+      <button id="find-rep-one" title="替换当前">替换</button>
+      <button id="find-rep-all" title="替换全部">全部替换</button>
+      <label title="区分大小写"><input type="checkbox" id="find-case">Aa</label>
+      <label title="正则表达式"><input type="checkbox" id="find-regex">.*</label>
+      <button id="find-close" title="关闭 (Esc)">✕</button>
+    </div>
+    <div id="toast-host"></div>
+    <div id="settings-panel" hidden>
+      <div class="sp-title">设置</div>
+      <label>主题
+        <select id="set-theme">
+          <option value="dark">暗色</option>
+          <option value="light">亮色</option>
+        </select>
+      </label>
+      <label>内容缩放 <input id="set-zoom" type="range" min="70" max="200" step="10"><span class="sp-val" id="set-zoom-v"></span></label>
+      <label>系统字号 <input id="set-sysfs" type="range" min="11" max="20" step="1"><span class="sp-val" id="set-sysfs-v"></span></label>
+      <label>默认分隔符 <select id="set-delim"></select></label>
+      <label class="sp-check"><input type="checkbox" id="set-cross"> 十字高亮</label>
+      <label class="sp-check"><input type="checkbox" id="set-zebra"> 斑马纹</label>
+      <label class="sp-check"><input type="checkbox" id="set-header"> 首行为表头</label>
+    </div>
+  </div>
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

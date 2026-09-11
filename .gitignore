@@ -1,0 +1,15 @@
+# .NET 构建产物（从不入库，要用请 dotnet build）
+[Bb]in/
+[Oo]bj/
+[pP]ublish/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# 系统文件
+Thumbs.db
+Desktop.ini
