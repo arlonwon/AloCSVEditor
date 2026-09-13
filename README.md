@@ -6,6 +6,17 @@ Windows 上的轻量现代 CSV 编辑器。绿色免安装，双击即用；自�
 
 ---
 
+## 下载
+
+直接下载可运行的程序（**无需安装、无需编译**）：
+
+| | |
+|---|---|
+| **最新版** | [**⬇ 下载 AloCsvEditor.exe**](https://github.com/arlonwon/AloCSVEditor/releases/latest/download/AloCsvEditor.exe) |
+| 全部版本 | [Releases 页面](https://github.com/arlonwon/AloCSVEditor/releases) |
+
+下载后复制到任意目录双击即用；环境要求见下。想核对下载是否完整，可在发布页看到该版本的 SHA256 校验值。
+
 ## 使用环境
 
 | 项目 | 要求 |
