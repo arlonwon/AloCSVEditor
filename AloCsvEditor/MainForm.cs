@@ -109,19 +109,27 @@ public sealed class MainForm : Form
     {
         try
         {
+            // 用户数据目录放 LocalAppData（发布版 exe 可能落在只读位置如 Program Files，
+            // 默认的 exe 旁目录会建不出来导致初始化失败）。
+            string userData = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "AloCsvEditor", "WebView2");
+            Directory.CreateDirectory(userData);
+            var env = await CoreWebView2Environment.CreateAsync(null, userData);
             // 初始化 WebView2（使用系统已装的 Evergreen Runtime）。
-            await _webView.EnsureCoreWebView2Async();
+            await _webView.EnsureCoreWebView2Async(env);
             CoreWebView2 core = _webView.CoreWebView2;
 
             // 关掉浏览器默认右键菜单（页面内自绘右键菜单，F-18）。
             core.Settings.AreDefaultContextMenusEnabled = false;
 
-            // 本地资源映射：<输出目录>\wwwroot → https://alocsv.local/
-            string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-            core.SetVirtualHostNameToFolderMapping(
-                AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
+            // 前端资源内嵌在 exe 里（单文件发布）：虚拟域名请求一律从程序集资源 serving。
+            // （之前是 SetVirtualHostNameToFolderMapping 映射输出目录；发布版无 wwwroot 文件夹故改掉。）
+            core.AddWebResourceRequestedFilter(
+                $"https://{AppHost}/*", CoreWebView2WebResourceContext.All);
+            core.WebResourceRequested += OnWebResourceRequested;
 
-            // 本地资源走虚拟域名：禁用 Chromium 缓存，每次都从磁盘读最新文件。
+            // 本地资源走虚拟域名：禁用 Chromium 缓存（内嵌资源与版本锁定，禁了也无妨，防旧 Runtime 缓存捣乱）。
             // （用户数据目录跨版本保留，禁缓存可避免更新后命中旧页面；本地加载无性能损失。）
             await core.CallDevToolsProtocolMethodAsync(
                 "Network.setCacheDisabled", "{\"cacheDisabled\":true}");
@@ -131,11 +139,64 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            // 初始化失败直接显示在标题栏。
+            // 初始化失败直接显示在标题栏 + 弹框（发布版在别的电脑上跑，看得懂）。
             _baseTitle = "AloCsvEditor — 初始化失败：" + ex.Message;
             UpdateTitle();
+            MessageBox.Show(this, "启动失败：" + ex.Message, "AloCsvEditor",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
+
+    // 内嵌资源 serving：URL 路径→清单资源名（AloCsvEditor.wwwroot.js.main.js 之类），
+    // 按扩展名回 Content-Type；找不到回 404（页面白屏可查）。
+    private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        try
+        {
+            string prefix = $"https://{AppHost}/";
+            string uri = e.Request.Uri;
+            if (!uri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return;
+            string rel = Uri.UnescapeDataString(uri[prefix.Length..]);
+            if (string.IsNullOrEmpty(rel) || rel.EndsWith('/'))
+                rel = "index.html";
+            string resourceName = "AloCsvEditor.wwwroot." + rel.Replace('/', '.');
+            using Stream? src = typeof(MainForm).Assembly.GetManifestResourceStream(resourceName);
+            if (src is null)
+            {
+                e.Response = _webView.CoreWebView2.Environment.CreateWebResourceResponse(
+                    Stream.Null, 404, "Not Found", "Content-Type: text/plain");
+                return;
+            }
+            // 注意：ms 不能 dispose（WebView2 异步读，Response 持有它保活）。
+            var ms = new MemoryStream();
+            src.CopyTo(ms);
+            ms.Position = 0;
+            string headers = "Content-Type: " + ContentTypeFor(rel);
+            e.Response = _webView.CoreWebView2.Environment.CreateWebResourceResponse(ms, 200, "OK", headers);
+        }
+        catch
+        {
+            // 资源层异常不炸应用：500 + 空体，页面侧显示加载失败。
+            try
+            {
+                e.Response = _webView.CoreWebView2.Environment.CreateWebResourceResponse(
+                    Stream.Null, 500, "Error", "Content-Type: text/plain");
+            }
+            catch { }
+        }
+    }
+
+    private static string ContentTypeFor(string rel) =>
+        Path.GetExtension(rel).ToLowerInvariant() switch
+        {
+            ".html" => "text/html; charset=utf-8",
+            ".css" => "text/css; charset=utf-8",
+            ".js" => "text/javascript; charset=utf-8",
+            ".svg" => "image/svg+xml",
+            ".json" => "application/json",
+            _ => "application/octet-stream",
+        };
 
     private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
@@ -288,6 +349,8 @@ public sealed class MainForm : Form
         _bridge.Post("settings", new
         {
             settings = _settings.Snapshot(),
+            // 版本号单一真相源（程序集版本）：「关于」对话框显示用。
+            appVersion = typeof(MainForm).Assembly.GetName().Version?.ToString(3) ?? "",
             supportedEncodings = FileService.SupportedEncodings,
             supportedDelimiters = FileService.SupportedDelimiters.Select(d => d.ToString()).ToArray(),
         });

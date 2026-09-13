@@ -37,18 +37,22 @@ export class Editor {
     const g = this.grid;
     if (this.active) this.commit('none');
     if (!g.rows[r] || c < 0 || c >= g.nCols) return;
+    // 注释行：强制 c=0，编辑的是"整行文本"（不拆分隔符），编辑框拉满整宽。
+    const comment = g.isComment?.(r) ?? false;
+    if (comment) c = 0;
     // #4：编辑框跟视觉位置——冻结行钉在冻结区（随首行钉住），隐藏行无视觉位置直接拒绝。
     const fi = g.frozenList.indexOf(r);
     const bp = fi < 0 ? g.visPos[r] : -1;
     if (fi < 0 && bp < 0) return;
     const parent = fi >= 0 ? g.frozenBox : g.canvas;
     if (this.box.parentNode !== parent) parent.append(this.box);
-    this.active = { r, c, original: g.rows[r][c] ?? '' };
+    const original = comment ? g.commentText(r) : (g.rows[r][c] ?? '');
+    this.active = { r, c, original, wasComment: comment };
     this.box.style.display = '';
     this.box.style.left = ROW_NUM_W + g.colX(c) + 'px';
     this.box.style.top = (fi >= 0 ? fi * g.rh() : HEADER_H + g.frozenHeight() + bp * g.rh()) + 'px';
-    this.box.style.minWidth = g.colW[c] + 'px';
-    this.area.value = initial ?? this.active.original;
+    this.box.style.minWidth = (comment ? g.colX(g.nCols) : g.colW[c]) + 'px';
+    this.area.value = initial ?? original;
     this.area.focus();
     this.area.select();
     this.autosize();
@@ -56,12 +60,25 @@ export class Editor {
 
   commit(move = 'none') {
     if (!this.active) return;
-    const { r, c, original } = this.active;
-    const value = this.area.value;
+    const { r, c, original, wasComment } = this.active;
+    let value = this.area.value;
+    const isComment = wasComment || (this.grid.isComment?.(r) ?? false);
+    // 注释行禁换行（整行文本单行不变量）：有换行消毒为空格并提示，消毒逻辑由调用方经 hooks 注入。
+    if (isComment && /[\r\n]/.test(value)) {
+      value = this.hooks.onSanitizeComment?.(value) ?? value.replace(/\r?\n/g, ' ');
+    }
     this.active = null;
     this.box.style.display = 'none';
     if (value !== original) {
-      if (this.grid.setCell(r, c, value)) this.hooks.onCommit?.(r, c, original, value);
+      let cells;
+      if (isComment) {
+        // 编辑的是整行文本：按分隔符重解析后逐格写回（＝取消注释即恢复多列；仍带标记则继续是注释行）。
+        const values = this.hooks.parseLine?.(value) ?? [value];
+        cells = this.grid.writeRowFromLine(r, values);
+      } else if (this.grid.setCell(r, c, value)) {
+        cells = [{ r, c, before: original, after: value }];
+      }
+      if (cells && cells.length) this.hooks.onCommit?.(cells);
       this.grid.render();
     }
     this.grid.scroller.focus({ preventScroll: true });

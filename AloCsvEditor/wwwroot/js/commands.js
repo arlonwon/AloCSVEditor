@@ -80,6 +80,22 @@ export function sortRows(rows, col, dir) {
   return rows;
 }
 
+// 锚定排序（注释行钉原位）：只排 [start, end) 内非注释行，注释行槽位保留原行对象。
+// 返回新数组（调用方整体替换；撤销靠 prevOrder 快照，与旧路径兼容）。
+export function sortWithComments(rows, start, col, dir, isComment) {
+  const data = [];
+  for (let i = start; i < rows.length; i++) {
+    if (!isComment(rows[i])) data.push(rows[i]);
+  }
+  sortRows(data, col, dir);
+  const out = rows.slice(0, start);
+  let di = 0;
+  for (let i = start; i < rows.length; i++) {
+    out.push(isComment(rows[i]) ? rows[i] : data[di++]);
+  }
+  return out;
+}
+
 // 在 index 处插入 count 个空行（nCols 列），返回插入的行对象数组。
 export function insertBlankRows(rows, index, count, nCols) {
   const made = [];

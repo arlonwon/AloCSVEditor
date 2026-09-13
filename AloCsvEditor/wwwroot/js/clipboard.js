@@ -18,6 +18,16 @@ export function rangesToTsv(rows, ranges) {
   return ranges.map((x) => rangeToTsv(rows, x.r1, x.c1, x.r2, x.c2)).join('\r\n\r\n');
 }
 
+// 选区复制文本（注释行）：单区且为通栏注释行时直接拷原文（不带多余制表符）。
+export function selectionCopyText(grid) {
+  const ranges = grid.allRanges();
+  if (ranges.length === 1) {
+    const x = ranges[0];
+    if (x.r1 === x.r2 && grid.isComment?.(x.r1)) return grid.commentText(x.r1);
+  }
+  return rangesToTsv(grid.rows, ranges);
+}
+
 // 超大粘贴确认阈值（格数；之前漏定义会导致粘贴监听直接抛错，本次补上）。
 const BIG_PASTE_CELLS = 200000;
 
@@ -81,17 +91,15 @@ export function pasteText(ctx, text) {
 export function initClipboard({ grid, editor, toast, onModify }) {
   document.addEventListener('copy', (e) => {
     if (editor.isEditing()) return; // 编辑中走原生行为
-    const ranges = grid.allRanges();
-    if (ranges.length === 0) return;
-    e.clipboardData.setData('text/plain', rangesToTsv(grid.rows, ranges));
+    if (grid.allRanges().length === 0) return;
+    e.clipboardData.setData('text/plain', selectionCopyText(grid));
     e.preventDefault();
   });
 
   document.addEventListener('cut', (e) => {
     if (editor.isEditing()) return;
-    const ranges = grid.allRanges();
-    if (ranges.length === 0) return;
-    e.clipboardData.setData('text/plain', rangesToTsv(grid.rows, ranges));
+    if (grid.allRanges().length === 0) return;
+    e.clipboardData.setData('text/plain', selectionCopyText(grid));
     e.preventDefault();
     // #9 决议：剪切只清空活动区（normSel），多选区保留。
     const range = grid.normSel();

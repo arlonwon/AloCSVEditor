@@ -103,6 +103,22 @@
       <label class="sp-check"><input type="checkbox" id="set-cross"> 十字高亮</label>
       <label class="sp-check"><input type="checkbox" id="set-zebra"> 斑马纹</label>
       <label class="sp-check"><input type="checkbox" id="set-header"> 首行为表头</label>
+      <label>表头行 <input id="set-headerrow" type="number" min="1" step="1" title="表头所在行（1 起；打开文件自动指向首个内容行）"><span class="sp-val">行</span></label>
+      <label>注释标记 <input id="set-prefixes" type="text" title="行首命中即为通栏注释行，空白分隔"><span class="sp-val"></span></label>
+      <button id="btn-about" class="sp-about">关于 AloCsvEditor</button>
+    </div>
+    <div id="about-modal" hidden>
+      <div class="about-box">
+        <svg class="about-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10M15 10v10"/></svg>
+        <div class="about-name">AloCsvEditor <span id="about-ver"></span></div>
+        <div class="about-sub">Windows 轻量现代 CSV 编辑器</div>
+        <div class="about-rows">
+          <div>作者：<b>Arlon</b></div>
+          <div>开源：本项目为开源软件</div>
+          <div>技术：.NET 10 · WebView2 · 原生 HTML/CSS/JS</div>
+        </div>
+        <button id="about-close">关闭</button>
+      </div>
     </div>
   </div>
   <script type="module" src="./js/main.js"></script>

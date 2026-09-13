@@ -3,6 +3,7 @@
 // M6 编辑覆盖层，M8 填充柄，M9 行列结构操作 + 排序指示。
 // 事件全部委托在容器层，行重建不丢失监听。
 import { insertBlankRows, removeRows, insertBlankCols, removeCols } from './commands.js';
+import { isCommentRow, commentLineText } from './csv.js';
 
 // ROW_NUM_W 须与 CSS .grc/.grid-corner 宽度保持一致；三者导出给 editor.js 定位覆盖层用。
 export const ROW_H = 28;
@@ -64,6 +65,9 @@ export class Grid {
     this.crosshair = false;
     this.zebra = false;
     this.zoom = 1; // 内容缩放（#8）：0.7–2.0，行高 = 基准 × zoom
+    this.headerRow = 0; // 表头行（绝对行号；会话态，打开文件时自动指向首个内容行）
+    this.commentPrefixes = []; // 通栏注释行首标记（# // …），main 从设置同步
+    this.delimiter = ','; // 当前分隔符（注释行整行文本拼接/解析用），main 打开文件时同步
     this.buildDom();
     this.bindEvents();
   }
@@ -243,6 +247,49 @@ export class Grid {
     this.render();
   }
 
+  // 表头行指定（会话态，不持久化）：钳制到 [0, rows.length]（==length 表示无表头）。
+  setHeaderRow(r) {
+    r = Number.isInteger(r) ? r : 0;
+    this.headerRow = Math.max(0, Math.min(this.rows.length, r));
+    this.layout();
+    this.render();
+  }
+
+  // 通栏注释行（内容推导：单字段 + 行首标记；结构操作不得破坏该不变量）。
+  isComment(r) {
+    return isCommentRow(this.rows[r], this.commentPrefixes);
+  }
+
+  // 注释行整行文本（显示/编辑/复制/回写统一入口）。
+  commentText(r) {
+    return commentLineText(this.rows[r], this.delimiter);
+  }
+
+  // 整行写入（注释行编辑用）：逐格算 diff；解析出的字段多于现有长度时补长。返回 cells 供撤销。
+  writeRowFromLine(r, values) {
+    const row = this.rows[r];
+    if (!row) return [];
+    const cells = [];
+    const n = Math.max(row.length, values.length);
+    for (let c = 0; c < n; c++) {
+      const before = row[c] ?? '';
+      const after = values[c] ?? '';
+      if (before !== after) {
+        cells.push({ r, c, before, after });
+        while (row.length <= c) row.push('');
+        row[c] = after;
+      }
+    }
+    return cells;
+  }
+
+  // 全宽（通栏注释行用）。
+  totalW() {
+    let w = 0;
+    for (const cw of this.colW) w += cw;
+    return w;
+  }
+
   // 表头模式开关（M9b）：首行加粗 + 冻结 + 排序排除（排序逻辑在 main）。
   setHeaderMode(on) {
     this.headerMode = !!on;
@@ -260,13 +307,15 @@ export class Grid {
   // frozenList：可见冻结行（绝对行号，有序，v1 最多首行）；bodyList：可见非冻结行（有序）；
   // visPos：绝对行→bodyList 下标（隐藏/冻结为 -1）。
   layout() {
-    const K = this.headerMode ? 1 : 0;
+    // 冻结行 = 表头行（headerMode 开且下标合法；注释行也可当表头，照样冻结通栏显示）。
+    const frz = this.headerMode && this.headerRow >= 0 && this.headerRow < this.rows.length
+      && !this.hidden.has(this.headerRow) ? this.headerRow : -1;
     this.frozenList = [];
     this.bodyList = [];
     this.visPos = new Int32Array(this.rows.length).fill(-1);
     for (let r = 0; r < this.rows.length; r++) {
       if (this.hidden.has(r)) continue;
-      if (r < K) this.frozenList.push(r);
+      if (r === frz) this.frozenList.push(r);
       else {
         this.visPos[r] = this.bodyList.length;
         this.bodyList.push(r);
@@ -330,6 +379,27 @@ export class Grid {
     this.renderExtra();
   }
 
+  // 通栏注释单元格：一个 div 占满整宽，不按列拆（dataset.c=0，选中/编辑/查找走单格逻辑）。
+  appendCommentCell(div, r) {
+    const fr = this.sel ? this.sel.fr : -1;
+    const fc = this.sel ? this.sel.fc : -1;
+    const isHeader = this.headerMode && r === this.headerRow;
+    const cell = document.createElement('div');
+    cell.className = 'gc comment-row'
+      + (isHeader ? ' header-cell' : '')
+      + (this.crosshair && (r === fr || 0 === fc) ? ' cross' : '');
+    cell.style.width = this.totalW() + 'px';
+    cell.textContent = this.commentText(r);
+    if (this.matchSet) {
+      const k = r + ',0';
+      if (k === this.matchCur) cell.classList.add('match-cur');
+      else if (this.matchSet.has(k)) cell.classList.add('match');
+    }
+    cell.dataset.r = r;
+    cell.dataset.c = 0;
+    div.append(cell);
+  }
+
   // 冻结行渲染（M9b）：行数极少，全量重建无压力；表头行加 header-cell 样式。
   renderFrozen() {
     this.frozenBox.querySelectorAll('.grid-frow').forEach((el) => el.remove());
@@ -349,8 +419,10 @@ export class Grid {
       num.dataset.r = r;
       num.title = `第${r + 1}行（点击选整行）`;
       div.append(num);
-      const isHeader = this.headerMode && r === 0;
-      for (let c = 0; c < this.nCols; c++) {
+      const isHeader = this.headerMode && r === this.headerRow;
+      if (this.isComment(r)) {
+        this.appendCommentCell(div, r);
+      } else for (let c = 0; c < this.nCols; c++) {
         const cell = document.createElement('div');
         cell.className = 'gc' + (isHeader ? ' header-cell' : '')
           + (!isHeader && this.zebra && r % 2 === 1 ? ' zebra' : '')
@@ -423,6 +495,11 @@ export class Grid {
       num.dataset.r = r;
       num.title = `第${r + 1}行（点击选整行）`;
       div.append(num);
+      if (this.isComment(r)) {
+        this.appendCommentCell(div, r);
+        frag.append(div);
+        continue;
+      }
       for (let c = 0; c < this.nCols; c++) {
         const cell = document.createElement('div');
         cell.className = 'gc'
@@ -431,7 +508,6 @@ export class Grid {
         cell.style.width = this.colW[c] + 'px';
         const v = rowData[c] ?? '';
         cell.textContent = v;
-        // 长文本悬停提示（启发式：超 20 字才给 title，避免处处弹窗）。
         if (this.matchSet) {
           const k = r + ',' + c;
           if (k === this.matchCur) cell.classList.add('match-cur');
@@ -619,10 +695,13 @@ export class Grid {
   }
 
   // 确保至少 nRows 行 × nCols 列（粘贴扩展用）；扩展后重算布局。
+  // 注释行跳过补齐（保持单字段不变量；粘贴正文写进注释行是另一回事，写完它自然变数据行）。
   ensureSize(nRows, nCols) {
     let grown = false;
     while (this.nCols < nCols) {
-      for (const r of this.rows) r.push('');
+      for (let i = 0; i < this.rows.length; i++) {
+        if (!this.isComment(i)) this.rows[i].push('');
+      }
       this.colW.push(DEFAULT_COL_W);
       this.nCols++;
       grown = true;
@@ -642,8 +721,10 @@ export class Grid {
     const cells = [];
     for (let r = range.r1; r <= range.r2; r++) {
       for (let c = range.c1; c <= range.c2; c++) {
-        if (this.rows[r][c] !== '') {
-          cells.push({ r, c, before: this.rows[r][c], after: '' });
+        // ?? ''：参差/注释短行越界读到 undefined 不算修改，也不扩展数组。
+        const before = this.rows[r][c] ?? '';
+        if (before !== '') {
+          cells.push({ r, c, before, after: '' });
           this.rows[r][c] = '';
         }
       }
@@ -677,7 +758,13 @@ export class Grid {
 
   insertCols(at, count) {
     at = Math.max(0, Math.min(this.nCols, at));
+    // 注释行保持单字段：先记下标，删掉刚插入的空位（否则长度>1 破坏注释不变量）。
+    const commentIdx = [];
+    for (let i = 0; i < this.rows.length; i++) {
+      if (this.isComment(i)) commentIdx.push(i);
+    }
     insertBlankCols(this.rows, at, count);
+    for (const i of commentIdx) this.rows[i].splice(at, count);
     this.colW.splice(at, 0, ...new Array(count).fill(DEFAULT_COL_W));
     this.nCols += count;
     this.layout();
@@ -705,7 +792,7 @@ export class Grid {
   ensureVisible(r, c) {
     const sc = this.scroller;
     // 冻结可见行永远可见：跳过纵向滚动（横向照常）。
-    const frozenVisible = this.headerMode && r === 0 && !this.hidden.has(0);
+    const frozenVisible = this.headerMode && r === this.headerRow && !this.hidden.has(this.headerRow);
     if (!frozenVisible) {
       const p = r >= 0 && r < this.rows.length ? this.visPos[r] : -1;
       if (p < 0) return; // 隐藏行：不滚动
@@ -737,6 +824,13 @@ export class Grid {
 
   onMouseDown(e) {
     if (e.button !== 0 || this.rows.length === 0) return;
+    // 编辑框内的按下：不夺焦、不开拖选。
+    // （否则冒泡到本函数 scroller.focus() 会让 textarea 失焦 → blur 提交，编辑中途被打断。）
+    if (e.target.closest?.('.cell-editor')) {
+      // textarea 上放行原生行为（点哪光标落哪、拖选文字）；框边缘等防默认夺焦。
+      if (e.target.tagName !== 'TEXTAREA') e.preventDefault();
+      return;
+    }
     this.hideTip();
     this.scroller.focus({ preventScroll: true });
     const t = e.target;

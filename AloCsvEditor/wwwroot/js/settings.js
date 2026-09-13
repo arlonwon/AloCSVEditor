@@ -8,6 +8,7 @@ export const settingDefaults = {
   zebra: true,
   defaultDelimiter: ',',
   headerMode: true,
+  commentPrefixes: ['#', '//'], // 通栏注释行首标记（## 被 # 覆盖）；空格分隔手填
 };
 
 export const settings = { ...settingDefaults };
@@ -34,6 +35,16 @@ function normalize() {
     settings.defaultDelimiter = ',';
   }
   settings.headerMode = settings.headerMode !== false;
+  // 注释标记归一化：数组留非空串；字符串按空白切（手填兼容）；其他回默认。
+  if (typeof settings.commentPrefixes === 'string') {
+    settings.commentPrefixes = settings.commentPrefixes.split(/\s+/).filter(Boolean);
+  }
+  if (!Array.isArray(settings.commentPrefixes)) {
+    settings.commentPrefixes = [...settingDefaults.commentPrefixes];
+  } else {
+    settings.commentPrefixes = settings.commentPrefixes.filter((p) => typeof p === 'string' && p !== '');
+    if (settings.commentPrefixes.length === 0) settings.commentPrefixes = [...settingDefaults.commentPrefixes];
+  }
 }
 
 export function setSetting(key, value) {

@@ -3,6 +3,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using AloCsvEditor;
+using Microsoft.Web.WebView2.Core;
 
 namespace AloCsvEditor;
 
@@ -44,6 +45,19 @@ internal static partial class Program
         }
 
         ApplicationConfiguration.Initialize();
+        // 发布版在别的电脑上跑：WebView2 Runtime 缺失直接给人话提示（不留晦涩报错）。
+        // Evergreen 绝大多数 Win10/Win11 自带；缺的装最新版 Edge（自带）或搜「WebView2 Runtime」装即可。
+        string? wvVersion = null;
+        try { wvVersion = CoreWebView2Environment.GetAvailableBrowserVersionString(); } catch { }
+        if (string.IsNullOrEmpty(wvVersion))
+        {
+            System.Windows.Forms.MessageBox.Show(
+                "未检测到 WebView2 Runtime，AloCsvEditor 跑不起来。\n\n装最新版 Edge 浏览器（自带），或搜「WebView2 Runtime」装 Evergreen 版，然后重开本软件。",
+                "AloCsvEditor",
+                System.Windows.Forms.MessageBoxButtons.OK,
+                System.Windows.Forms.MessageBoxIcon.Warning);
+            return 3;
+        }
         Application.Run(new MainForm(args));
         return 0;
     }

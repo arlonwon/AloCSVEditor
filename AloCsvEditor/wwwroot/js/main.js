@@ -2,12 +2,12 @@
 // M4 起接入 csv.js 解析，M5 起接入 grid.js 网格。
 import { createBridge } from './bridge.js';
 import { state, initStore, setDirty } from './store.js';
-import { parse, serialize } from './csv.js';
+import { parse, serialize, isCommentRow } from './csv.js';
 import { Grid, colName } from './grid.js';
 import { initFind } from './find.js';
 import { Editor } from './editor.js';
-import { initClipboard, rangesToTsv, pasteText } from './clipboard.js';
-import { UndoStack, sortRows } from './commands.js';
+import { initClipboard, selectionCopyText, pasteText } from './clipboard.js';
+import { UndoStack, sortWithComments } from './commands.js';
 import { initFill } from './fill.js';
 import { computeHidden } from './filter.js';
 import { showMenu, initMenu } from './menu.js';
@@ -36,6 +36,7 @@ window.__alocsvDiag = () => JSON.stringify({
   cells: document.querySelectorAll('.gc').length,
   sel: grid.sel ? [grid.sel.ar, grid.sel.ac, grid.sel.fr, grid.sel.fc] : null,
   extras: grid.extra.length,
+  headerRow: grid.headerRow,
   cross: !!grid.crosshair,
   zebra: !!grid.zebra,
   zoom: grid.zoom ?? 1,
@@ -44,7 +45,15 @@ window.__alocsvDiag = () => JSON.stringify({
 // 编辑器 + 剪贴板（M6）；撤销栈（M7）。
 const undoStack = new UndoStack(200);
 const editor = new Editor(grid, {
-  onCommit: (r, c, before, after) => commitChange({ cells: [{ r, c, before, after }] }),
+  // cells 数组：数据行 1 格；注释行编辑整行文本，重解析后可能多格。
+  onCommit: (cells) => commitChange({ cells }),
+  // 注释行换行消毒：整行文本单行不变量，Alt+Enter 进来的换行替换为空格并提示。
+  onSanitizeComment: (value) => {
+    toast('注释行不支持换行，已替换为空格');
+    return value.replace(/\r?\n/g, ' ');
+  },
+  // 注释行整行文本按分隔符重解析（取消注释即恢复多列）。
+  parseLine: (text) => parse(text, state.file?.delimiter ?? ',').rows[0] ?? [],
 });
 grid.hooks.onEditRequest = (r, c, initial) => {
   if (r < 0 || r >= grid.rows.length || c < 0 || c >= grid.nCols) return;
@@ -99,7 +108,14 @@ function refreshStats() {
     const text = filterText.value.trim();
     let col = parseInt(filterScope.value ?? '-1', 10);
     if (Number.isNaN(col) || col < -1 || col >= grid.nCols) col = -1;
-    const hidden = text ? computeHidden(grid.rows, text, col, grid.headerMode ? 1 : 0) : new Set();
+    // 跳过表头之前（含表头）；注释行永不隐藏（标注性内容，筛选中保持可见）。
+    const skip = grid.headerMode ? grid.headerRow + 1 : 0;
+    const hidden = text ? computeHidden(grid.rows, text, col, skip) : new Set();
+    if (hidden.size > 0) {
+      for (let r = 0; r < grid.rows.length; r++) {
+        if (isCommentRow(grid.rows[r], grid.commentPrefixes)) hidden.delete(r);
+      }
+    }
     const changed = hidden.size !== grid.hidden.size
       || [...hidden].some((r) => !grid.hidden.has(r));
     if (changed) grid.setHiddenRows(hidden);
@@ -116,7 +132,9 @@ function updateClearBtn() {
 function applyCells(cells, which) {
   for (const d of cells) {
     const row = grid.rows[d.r];
-    if (row && d.c < row.length) row[d.c] = which === 'undo' ? d.before : d.after;
+    if (!row) continue;
+    while (row.length <= d.c) row.push(''); // 注释行整行改写可能加长：先补齐再写（撤销同理）
+    row[d.c] = which === 'undo' ? d.before : d.after;
   }
 }
 
@@ -172,7 +190,23 @@ initFill({ grid, editor, toast, onModify: (change) => commitChange(change || nul
 initMenu(grid.scroller);
 const findApi = initFind({ grid, toast, onModify: (change) => commitChange(change || null) });
 
-// ---------- 表头模式（M9b）：首行加粗 + 冻结 + 排序排除，默认开，进 settings.json ----------
+// 首个内容行（跳过注释行）：打开文件的默认表头；全注释文件返回 length（=无表头）。
+function firstContentRow() {
+  for (let r = 0; r < grid.rows.length; r++) {
+    if (!isCommentRow(grid.rows[r], grid.commentPrefixes)) return r;
+  }
+  return grid.rows.length;
+}
+
+// 右键行号“设为表头行”：会话内有效（打开新文件重置为首个内容行）。
+function setHeaderRowFromMenu() {
+  if (!grid.sel) return;
+  grid.setHeaderRow(grid.sel.fr);
+  refreshStats();
+  toast(`表头行：第 ${grid.sel.fr + 1} 行`);
+}
+
+// ---------- 表头模式（M9b）：加粗 + 冻结 + 排序排除，默认开，进 settings.json ----------
 function applyHeaderMode(on, silent) {
   grid.setHeaderMode(on);
   const btn = $('btn-header');
@@ -187,7 +221,7 @@ function loadHeaderMode() {
 }
 $('btn-header').addEventListener('click', () => {
   applyHeaderMode(!grid.headerMode);
-  toast(grid.headerMode ? '表头行：开（首行冻结，不参与排序）' : '表头行：关');
+  toast(grid.headerMode ? '表头行：开（冻结，不参与排序）' : '表头行：关');
 });
 applyHeaderMode(loadHeaderMode(), true);
 
@@ -347,20 +381,19 @@ function sortBy(col, dir) {
     toast('筛选状态下不可排序，请先清除筛选');
     return;
   }
-  // 表头模式：首行不参与排序（M9b）。
-  const start = grid.headerMode ? 1 : 0;
+  // 表头模式：表头行之前不动；注释行钉原位，只排数据行（sortWithComments）。
+  const start = grid.headerMode ? grid.headerRow + 1 : 0;
   if (grid.rows.length <= start) {
     toast('没有可排序的数据行');
     return;
   }
   const prevOrder = [...grid.rows];
   const prevMark = grid.sortMark;
-  const body = grid.rows.slice(start);
-  sortRows(body, col, dir);
-  grid.rows = grid.rows.slice(0, start).concat(body);
+  grid.rows = sortWithComments(grid.rows, start, col, dir,
+    (row) => isCommentRow(row, grid.commentPrefixes));
   grid.sortMark = { col, dir };
   grid.render();
-  commitChange({ struct: { op: 'sort', col, dir, prevOrder, prevMark } });
+  commitChange({ struct: { op: 'sort', col, dir, start, prevOrder, prevMark } });
 }
 
 function clearSort() {
@@ -412,7 +445,8 @@ function applyStruct(s, redo) {
     case 'sort':
       if (redo) {
         if (s.col < 0) g.restoreOriginalOrder();
-        else sortRows(g.rows, s.col, s.dir);
+        else g.rows = sortWithComments(g.rows, s.start ?? 0, s.col, s.dir,
+          (row) => isCommentRow(row, grid.commentPrefixes));
       } else {
         g.rows = s.prevOrder.slice();
       }
@@ -475,7 +509,17 @@ function buildMenu(kind) {
     { label: '在右侧插入列', hint: 'Ctrl+J', action: () => doInsertCols(true) },
     { label: '删除列', hint: 'Del', action: () => doDeleteCols() },
   ];
-  if (kind === 'row') return rowItems;
+  if (kind === 'row') {
+    // 右键时 sel 已是该整行：当前表头打勾。
+    const hr = grid.sel ? grid.sel.fr : -1;
+    return [
+      {
+        label: (grid.headerMode && hr === grid.headerRow ? '✓ ' : '') + '设为表头行',
+        action: () => setHeaderRowFromMenu(),
+      },
+      ...rowItems,
+    ];
+  }
   if (kind === 'col') {
     const c = grid.sel ? grid.sel.fc : 0;
     return [
@@ -512,10 +556,9 @@ async function pasteFromClipboard() {
 }
 
 async function copySelToClipboard(cut) {
-  const ranges = grid.allRanges();
-  if (ranges.length === 0) return;
+  if (grid.allRanges().length === 0) return;
   try {
-    await navigator.clipboard.writeText(rangesToTsv(grid.rows, ranges));
+    await navigator.clipboard.writeText(selectionCopyText(grid));
     if (cut) {
       grid.clearSelection(); // 自带入栈 + render
       toast('已剪切');
@@ -585,7 +628,12 @@ function renderAll() {
     meta += ` · ${state.stats.rows} 行 × ${state.stats.cols} 列`;
     if (state.stats.warnings > 0) meta += ` · ${state.stats.warnings} 处容错`;
   }
-  if (grid.headerMode) meta += ' · 表头：首行';
+  if (grid.headerMode && grid.headerRow < grid.rows.length) meta += ` · 表头：第${grid.headerRow + 1}行`;
+  let commentCount = 0;
+  for (const row of grid.rows) {
+    if (isCommentRow(row, grid.commentPrefixes)) commentCount++;
+  }
+  if (commentCount > 0) meta += ` · 注释 ${commentCount} 行`;
   if (grid.hidden.size > 0) meta += ` · 已隐藏 ${grid.hidden.size} 行`;
   $('st-meta').textContent = meta;
 }
@@ -635,8 +683,12 @@ bridge.on('fileOpened', (msg) => {
   buildSelects(msg.supportedEncodings ?? [], msg.supportedDelimiters ?? []);
   // 解析并渲染（M5）；解析失败则清空网格并提示（解析器本身是容错的，这里是兜底）。
   try {
-    const parsed = parse(state.file.text, state.file.delimiter);
+    grid.commentPrefixes = settings.commentPrefixes;
+    grid.delimiter = state.file.delimiter;
+    const parsed = parse(state.file.text, state.file.delimiter, { commentPrefixes: grid.commentPrefixes });
     grid.setData(parsed.rows);
+    // 默认表头 = 跳过注释后的首个内容行（每次打开重置；右键可改，会话内有效）。
+    grid.setHeaderRow(firstContentRow());
     state.file.endsWithNewline = parsed.endsWithNewline;
     state.stats = { rows: parsed.rows.length, cols: parsed.maxCols, warnings: parsed.warnings };
     resetFilterUI();
@@ -783,10 +835,12 @@ function collectSavePayload() {
     return null;
   }
   // M6 起：保存网格数据序列化结果（M5 及之前是原文回写；含引号换行的字段按最小引号策略处理）。
+  // 注释行原样回写（commentPrefixes 透传，见 csv.js）。
   const text = serialize(grid.rows, {
     delimiter: f.delimiter,
     newline: f.newline,
     trailingNewline: f.endsWithNewline ?? true,
+    commentPrefixes: settings.commentPrefixes,
   });
   return {
     path: f.path,
@@ -845,7 +899,10 @@ function newDocument() {
   if (serverEncodings.length > 0 && serverDelimiters.length > 0) {
     buildSelects(serverEncodings, serverDelimiters);
   }
+  grid.commentPrefixes = settings.commentPrefixes;
+  grid.delimiter = state.file.delimiter;
   grid.setData(Array.from({ length: NEW_ROWS }, () => new Array(NEW_COLS).fill('')));
+  grid.setHeaderRow(firstContentRow()); // 空表：第 0 行
   state.stats = { rows: NEW_ROWS, cols: NEW_COLS, warnings: 0 };
   resetFilterUI();
   findApi?.close();
@@ -896,6 +953,7 @@ bridge.on('settings', (msg) => {
   const stored = (msg.settings && typeof msg.settings === 'object') ? msg.settings : {};
   serverEncodings = msg.supportedEncodings ?? [];
   serverDelimiters = msg.supportedDelimiters ?? [];
+  if (msg.appVersion) $('about-ver').textContent = 'v' + msg.appVersion;
   const legacy = {};
   try {
     const lt = localStorage.getItem('alocsv-theme');
@@ -912,6 +970,7 @@ bridge.on('settings', (msg) => {
   grid.setZoom?.(settings.zoom);
   grid.setCrosshair?.(settings.crosshair);
   grid.setZebra?.(settings.zebra);
+  grid.commentPrefixes = settings.commentPrefixes;
   syncDisplayToggles();
   syncSettingsPanel();
   if (Object.keys(legacy).length > 0) saveSoon();
@@ -928,6 +987,8 @@ function syncSettingsPanel() {
   $('set-cross').checked = grid.crosshair;
   $('set-zebra').checked = grid.zebra;
   $('set-header').checked = grid.headerMode;
+  $('set-headerrow').value = grid.headerRow + 1;
+  $('set-prefixes').value = settings.commentPrefixes.join(' ');
   // 默认分隔符候选跟工具栏分隔符下拉保持一致（同一真相源）。
   const sd = $('set-delim');
   const want = [...selDelimiter.options].map((o) => [o.value, o.textContent]);
@@ -1010,6 +1071,38 @@ $('set-zebra').addEventListener('change', (e) => {
 });
 $('set-header').addEventListener('change', (e) => {
   applyHeaderMode(e.target.checked);
+});
+$('set-headerrow').addEventListener('change', (e) => {
+  // 1-based 显示；会话内有效（打开新文件重置为首个内容行，不持久化）。
+  const v = Math.max(1, Math.round(+e.target.value || 1));
+  e.target.value = v;
+  grid.setHeaderRow(v - 1);
+  refreshStats();
+  toast(`表头行：第 ${v} 行`);
+});
+$('set-prefixes').addEventListener('change', (e) => {
+  // 空白分隔；置空回退到 #（至少保留一个标记，否则注释功能名存实亡）。
+  const arr = String(e.target.value ?? '').split(/\s+/).filter(Boolean);
+  setSetting('commentPrefixes', arr.length > 0 ? arr : ['#']);
+  grid.commentPrefixes = settings.commentPrefixes;
+  grid.render();
+  refreshStats();
+  toast('注释标记已更新：' + settings.commentPrefixes.join(' '));
+});
+
+// ---------- 关于对话框（作者/开源信息；版本号由 C# settings 下发） ----------
+const aboutModal = $('about-modal');
+
+$('btn-about').addEventListener('click', () => {
+  $('settings-panel').hidden = true;
+  aboutModal.hidden = false;
+});
+$('about-close').addEventListener('click', () => { aboutModal.hidden = true; });
+aboutModal.addEventListener('pointerdown', (e) => {
+  if (e.target === aboutModal) aboutModal.hidden = true; // 点遮罩关闭
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') aboutModal.hidden = true;
 });
 
 // ---------- 启动握手 ----------

@@ -9,15 +9,16 @@
   --bg-header: #3a3a3a;
   --fg: #e8e8e8;
   --fg-dim: #9d9d9d;
+  --fg-faint: #6f6f6f;
   --border: #3c3c3c;
   --accent: #2f81f7;
   --selection: rgba(47, 129, 247, 0.25);
   --hover: rgba(255, 255, 255, 0.06);
-  --titlebar: #333333;
   --cross: rgba(47, 129, 247, 0.12);
   --zebra: rgba(255, 255, 255, 0.06);
   --fheader: rgba(47, 129, 247, 0.16);
   --win-border: #404040;
+  --titlebar: #2e4038;
 }
 
 :root[data-theme="light"] {
@@ -27,15 +28,16 @@
   --bg-header: #d8d8d8;
   --fg: #1e1e1e;
   --fg-dim: #616161;
+  --fg-faint: #8c8c8c;
   --border: #d4d4d4;
   --accent: #0969da;
   --selection: rgba(9, 105, 218, 0.18);
   --hover: rgba(0, 0, 0, 0.05);
-  --titlebar: #e6e6e6;
   --cross: rgba(9, 105, 218, 0.1);
   --zebra: rgba(0, 0, 0, 0.055);
   --fheader: rgba(9, 105, 218, 0.12);
   --win-border: #c9c9c9;
+  --titlebar: #dcefe2;
 }
 
 html,
@@ -701,6 +703,16 @@ body {
 
 /* ---------- 十字高亮 + 斑马纹（#6/#10） ----------
    :where() 把优先级压到 0-1-0，查找高亮（.gc.match 0-2-0）永远压过它们，无需纠缠顺序。 */
+
+/* 通栏注释行（# 轮）：单 div 占满，不按列拆；比数据行更淡、字号略小 */
+.gc.comment-row {
+  font-style: italic;
+  font-size: calc(var(--content-fs) - 1px);
+  color: var(--fg-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 :where(.gc).zebra {
   background: var(--zebra);
 }
@@ -894,6 +906,121 @@ body.maxed #win-max .g-max {
   accent-color: var(--accent);
 }
 
+#settings-panel input[type="number"],
+#settings-panel input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: var(--sys-fs);
+  outline: none;
+}
+
+#settings-panel input[type="number"]:focus,
+#settings-panel input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+/* 设置面板里的“关于”入口 */
+.sp-about {
+  margin-top: 2px;
+  width: 100%;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: var(--sys-fs);
+  cursor: pointer;
+}
+
+.sp-about:hover {
+  background: var(--hover);
+}
+
+/* ---------- 关于对话框 ---------- */
+#about-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+#about-modal[hidden] {
+  display: none;
+}
+
+.about-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 300px;
+  padding: 20px 24px 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+  font-size: var(--sys-fs);
+  text-align: center;
+}
+
+.about-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+}
+
+.about-name {
+  font-size: calc(var(--sys-fs) + 3px);
+  font-weight: 600;
+}
+
+#about-ver {
+  color: var(--fg-dim);
+  font-weight: 400;
+}
+
+.about-sub {
+  color: var(--fg-dim);
+}
+
+.about-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  color: var(--fg);
+}
+
+.about-rows b {
+  color: var(--accent);
+}
+
+#about-close {
+  margin-top: 14px;
+  padding: 5px 22px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--sys-fs);
+  cursor: pointer;
+}
+
+#about-close:hover {
+  filter: brightness(1.1);
+}
+
 /* ---------- 格式弹出框（#4）：编码/分隔符，平时收起 ---------- */
 #format-panel {
   position: fixed;
@@ -967,16 +1094,16 @@ body.maxed #win-max .g-max {
   width: 86px;
 }
 
-/* 过滤器组是唯一弹性组：窗口缩小时它先缩，输入框跟缩 */
+/* 过滤器组跟内容走（flex:none）：输入框 200px 定宽，组不压缩不裁剪；
+   全工具栏加起来不到 700px，800px 最小窗口也放得下，无需弹性 */
 #tb-filter {
-  flex: 1 1 auto;
+  flex: none;
   overflow: hidden;
 }
 
 #tb-filter #filter-text {
-  flex: 1 1 auto;
-  width: 60px;
-  min-width: 40px;
+  flex: none;
+  width: 200px;
 }
 
 #filter-scope {

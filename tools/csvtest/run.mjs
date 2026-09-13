@@ -1,11 +1,11 @@
 // csv.js 单测（DESIGN.md §8.1）：node tools/csvtest/run.mjs
 // 约定：全部通过退出码 0，有失败非 0。
-import { parse, serialize, quoteIfNeeded } from '../../AloCsvEditor/wwwroot/js/csv.js';
+import { parse, serialize, quoteIfNeeded, isCommentRow, commentLineText } from '../../AloCsvEditor/wwwroot/js/csv.js';
 import { rangeToTsv, rangesToTsv, writeBlock } from '../../AloCsvEditor/wwwroot/js/clipboard.js';
 import { UndoStack } from '../../AloCsvEditor/wwwroot/js/commands.js';
 import { fillValueAt, computeFill, findFillBoundary } from '../../AloCsvEditor/wwwroot/js/fill.js';
 import {
-  compareCells, sortRows, insertBlankRows, removeRows, insertBlankCols, removeCols,
+  compareCells, sortRows, sortWithComments, insertBlankRows, removeRows, insertBlankCols, removeCols,
 } from '../../AloCsvEditor/wwwroot/js/commands.js';
 import { rowMatches, computeHidden } from '../../AloCsvEditor/wwwroot/js/filter.js';
 import { findMatches, replaceInCell } from '../../AloCsvEditor/wwwroot/js/find.js';
@@ -347,6 +347,53 @@ check('T47 fill-force-seq', () =>
   fillValueAt(['5'], 0, true) === '5'
   && fillValueAt(['5'], 2, true) === '7'
   && fillValueAt(['A001'], 1, true) === 'A002');
+
+// 注释行解析（# 轮）：行首命中整行收单字段（分隔符不拆）；缩进/引号开头不是注释；CRLF/末尾无换行正常
+check('T48 parse-comment', () => {
+  const r = parse('# hi, a"b\n// x\ny\n  # indented\n"q",z\n', ',', { commentPrefixes: ['#', '//'] });
+  return eq(r.rows, [['# hi, a"b'], ['// x'], ['y', ''], ['  # indented', ''], ['q', 'z']])
+    && r.rows[0].length === 1 && r.rows[3].length === 2;
+});
+
+// 注释行序列化原样回写 + roundtrip 稳定（重解析仍是单字段注释行）
+check('T49 serialize-comment', () => {
+  const rows = [['# a,b"c'], ['x', 'y']];
+  const s = serialize(rows, { delimiter: ',', newline: '\n', trailingNewline: false, commentPrefixes: ['#'] });
+  if (s !== '# a,b"c\nx,y') return false;
+  const r2 = parse(s, ',', { commentPrefixes: ['#'] });
+  return eq(r2.rows, rows) && isCommentRow(r2.rows[0], ['#']) && !isCommentRow(r2.rows[1], ['#']);
+});
+
+// 锚定排序：注释行钉原位，数据行排序；撤销靠快照（调用方职责，这里只验合并）
+check('T50 sort-with-comments', () => {
+  const rows = [['# c'], ['b', '2'], ['a', '1'], ['# d'], ['c', '3']];
+  const out = sortWithComments(rows, 0, 1, 'asc', (r) => isCommentRow(r, ['#']));
+  return eq(out, [['# c'], ['a', '1'], ['b', '2'], ['# d'], ['c', '3']]);
+});
+
+// 注释行实时判定（首列随时补标记即成立；多字段也算）+ 多字段注释行序列化不丢内容
+check('T51 comment-live-detect', () => {
+  if (!isCommentRow(['#x', '1'], ['#'])) return false; // 多字段也判注释
+  if (isCommentRow(['a', '1'], ['#'])) return false; // 无标记不算
+  if (isCommentRow(['', '#a'], ['#'])) return false; // 标记不在首列不算
+  const s = serialize([['#x', '1', '2']], {
+    delimiter: ',', newline: '\n', trailingNewline: false, commentPrefixes: ['#'],
+  });
+  if (s !== '#x,1,2') return false; // 多字段整行拼接，内容不丢
+  const r = parse(s, ',', { commentPrefixes: ['#'] });
+  return eq(r.rows, [['#x,1,2']]); // 重解析并入注释文本
+});
+
+// 注释行整行文本：整行拼接（不拆分隔符）、尾部空字段裁掉；取消注释即按分隔符重新解析回多列
+check('T52 comment-line-text', () => {
+  if (commentLineText(['#Alice', '30', 'Beijing'], ',') !== '#Alice,30,Beijing') return false;
+  if (commentLineText(['# a,b'], ',') !== '# a,b') return false; // 文本里的逗号不再当分隔符
+  if (commentLineText(['#x', '', ''], ',') !== '#x') return false; // 尾部空字段裁掉
+  if (commentLineText(['#x', '1', '2'], ';') !== '#x;1;2') return false; // 跟随当前分隔符
+  // 取消注释（去掉 #）→ 重新按分隔符拆列
+  const back = parse(commentLineText(['#Alice', '30', 'Beijing'], ',').slice(1), ',').rows[0];
+  return eq(back, ['Alice', '30', 'Beijing']) && !isCommentRow(back, ['#']);
+});
 
 // 性能基线：5 万行 × 20 列解析+序列化计时（只打印，不判失败）
 {
