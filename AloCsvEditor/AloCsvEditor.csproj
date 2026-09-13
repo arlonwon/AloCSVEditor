@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AloCsvEditor</RootNamespace>
     <AssemblyName>AloCsvEditor</AssemblyName>
-    <Version>1.8.0</Version>
+    <Version>1.8.1</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <!-- MSB3277 是 WebView2 包（内含 net5.0 时代的 WPF 程序集）与 .NET 10 的已知无害冲突，
          构建已自动统一到框架版本；本项目只用 WinForms 控件，不加载 WPF 程序集，故屏蔽。 -->

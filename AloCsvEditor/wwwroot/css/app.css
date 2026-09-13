@@ -1005,6 +1005,11 @@ body.maxed #win-max .g-max {
   color: var(--accent);
 }
 
+.about-warn {
+  color: var(--fg-dim);
+  font-size: calc(var(--sys-fs) - 1px);
+}
+
 #about-close {
   margin-top: 14px;
   padding: 5px 22px;
