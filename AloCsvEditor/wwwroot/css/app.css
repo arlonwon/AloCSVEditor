@@ -625,7 +625,11 @@ body.maxed::after {
 }
 
 /* 滚动条：原先 12px 轨道 / 6px 可见滑块太细不好拖，整体放大一倍（24px / 12px）。
-   thumb 的 border 用 --bg 制造内缩，视觉上仍是“悬浮胶囊”，只是更粗更好抓。 */
+   thumb 的 border 用 --bg 制造内缩，视觉上仍是“悬浮胶囊”，只是更粗更好抓。
+   min-height/min-width 给滑块长度兜底：行数或列数极大时，滑块按比例会被压成
+   几个像素（实测 20 万行时仅约 12px），加上最短长度才抓得住。
+   注意：这两个值对滑块伪元素是 border-box，上下（纵轴）/左右（横轴）各 6px 的
+   内缩边框算在内，故 60px 实际可见长度约 48px（正好是粗细 24px 的 2 倍）。 */
 .grid-scroll::-webkit-scrollbar {
   width: 24px;
   height: 24px;
@@ -635,6 +639,8 @@ body.maxed::after {
   background: var(--border);
   border-radius: 12px;
   border: 6px solid var(--bg);
+  min-height: 60px;
+  min-width: 60px;
 }
 
 .grid-scroll::-webkit-scrollbar-thumb:hover {
