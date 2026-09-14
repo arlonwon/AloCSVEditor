@@ -54,7 +54,10 @@ export class Editor {
     this.box.style.minWidth = (comment ? g.colX(g.nCols) : g.colW[c]) + 'px';
     this.area.value = initial ?? original;
     this.area.focus();
-    this.area.select();
+    // initial 非空 = 直接打字进来的（含输入法提交的整段文本）：光标落到末尾，后续字符追加。
+    // initial 为空 = F2/双击：保留原值并全选，方便直接覆盖。
+    if (initial == null) this.area.select();
+    else this.area.setSelectionRange(this.area.value.length, this.area.value.length);
     this.autosize();
   }
 

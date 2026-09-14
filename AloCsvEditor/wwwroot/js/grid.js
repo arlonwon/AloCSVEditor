@@ -8,7 +8,7 @@ import { isCommentRow, commentLineText } from './csv.js';
 // ROW_NUM_W 须与 CSS .grc/.grid-corner 宽度保持一致；三者导出给 editor.js 定位覆盖层用。
 export const ROW_H = 28;
 export const HEADER_H = 30;
-export const ROW_NUM_W = 48;
+export const ROW_NUM_W = 53;
 // main.js 撤销删列恢复列宽用，导出。
 export const DEFAULT_COL_W = 120;
 const MIN_COL_W = 48;
@@ -108,7 +108,28 @@ export class Grid {
     this.emptyEl.className = 'empty-hint';
     this.emptyEl.textContent = '打开 CSV 文件开始（工具栏“打开”，或把文件拖进来，或双击 csv 文件）';
     this.canvas.append(this.head, this.frozenBox, this.rangeEl, this.activeEl, this.handleEl);
-    this.scroller.append(this.canvas);
+    // 输入法靶子（key-sink）：一个隐形但**可聚焦**的 textarea，网格有焦点时它常驻焦点。
+    // 为什么必须这么做：输入法（IME）只对「当前已聚焦的可编辑元素」生效。若焦点落在不可编辑的
+    // scroller 上，用户按下的第一个拼音字母会被输入法当作普通按键放过去，形成孤立英文字母，
+    // 后面的字母才开始组字——这正是"首字母进不了输入法"的根因。
+    // 解决：让焦点常驻可编辑元素，输入法从第一个键起就有目标。
+    // display:none / visibility:hidden 的元素**拿不到焦点**，所以用 1px + opacity:0 藏起来。
+    this.keySink = document.createElement('textarea');
+    this.keySink.className = 'key-sink';
+    this.keySink.dataset.keysink = '1'; // 供剪贴板/快捷键判断"这是网格的按键接收器，不是用户的输入框"
+    this.keySink.tabIndex = -1;
+    this.keySink.spellcheck = false;
+    this.keySink.setAttribute('aria-hidden', 'true');
+    // 焦点重定向：任何 scroller.focus() 实际都落到 key-sink（一处顶掉全部调用点）。
+    this.scroller.addEventListener('focus', () => {
+      if (document.activeElement !== this.keySink) this.keySink.focus({ preventScroll: true });
+    });
+    // 打进来的字符（含输入法组字结果）→ 作为初值进入编辑；取完即清空，避免攒字。
+    this.keySink.addEventListener('input', (e) => {
+      if (!e.isComposing) this.takeKeySink();
+    });
+    this.keySink.addEventListener('compositionend', () => this.takeKeySink());
+    this.scroller.append(this.canvas, this.keySink);
     this.scroller.style.display = 'none';
     this.host.append(this.scroller, this.emptyEl);
     // 溢出提示（#9）：自绘 div（原生 title 字体不可控），跟系统字体。
@@ -253,6 +274,30 @@ export class Grid {
     this.headerRow = Math.max(0, Math.min(this.rows.length, r));
     this.layout();
     this.render();
+  }
+
+  // 取走 key-sink 里已产生的文本（普通打字或输入法提交的结果），作为编辑初值进入编辑；取完清空。
+  // compositionend 之后还会跟一个 input 事件，靠"值为空即忽略"天然去重。
+  takeKeySink() {
+    const text = this.keySink.value;
+    if (!text) return;
+    this.keySink.value = '';
+    if (!this.sel) return;
+    this.hooks.onEditRequest?.(this.sel.fr, this.sel.fc, text);
+  }
+
+  // 冻结（只读）闸门：所有会改动数据的入口（编辑/删除/粘贴/填充/插删行列/排序/替换）
+  // 先调这个；命中则调用方直接 return。this.locked 由 main.js 的「冻结」按钮切换
+  // （未初始化即 undefined，按未冻结处理）。
+  // 提示做了节流：连续按键时不会刷屏（默认 4s 的 toast 叠一屏很难看）。
+  blockEdit(toast) {
+    if (!this.locked) return false;
+    const now = Date.now();
+    if (!this._blockToastAt || now - this._blockToastAt > 1500) {
+      this._blockToastAt = now;
+      toast?.('已冻结（只读）：请先点工具栏的「冻结」按钮解冻，再编辑');
+    }
+    return true;
   }
 
   // 通栏注释行（内容推导：单字段 + 行首标记；结构操作不得破坏该不变量）。
@@ -1054,11 +1099,8 @@ export class Grid {
       else this.clearSelection();
       return;
     }
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      this.hooks.onEditRequest?.(this.sel.fr, this.sel.fc, e.key);
-      return;
-    }
+    // 可打印字符不再在这里处理：焦点常驻 key-sink（可编辑），字符会正常落进去，
+    // 再由 input / compositionend 触发进入编辑——这样才能走输入法。见 buildDom 里 keySink 注释。
     const s = this.sel;
     const page = Math.max(1, Math.floor(this.scroller.clientHeight / this.rh()) - 1);
     const ext = e.shiftKey;

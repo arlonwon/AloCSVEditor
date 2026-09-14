@@ -21,7 +21,8 @@
   --zebra: rgba(255, 255, 255, 0.06);
   --fheader: rgba(47, 129, 247, 0.16);
   --win-border: #404040;
-  --titlebar: #2e4038;
+  /* 标题栏：现代应用常用的中性石板色（与 --accent 蓝色同族），不用带色相的绿调 */
+  --titlebar: #24292f;
 }
 
 :root[data-theme="light"] {
@@ -42,7 +43,8 @@
   --zebra: rgba(0, 0, 0, 0.055);
   --fheader: rgba(9, 105, 218, 0.12);
   --win-border: #c9c9c9;
-  --titlebar: #dcefe2;
+  /* 标题栏：同上，冷调浅灰，和面板色(--bg-panel #f3f3f3)拉开一点层次 */
+  --titlebar: #eef1f5;
 }
 
 html,
@@ -242,6 +244,24 @@ body.maxed::after {
   box-sizing: border-box;
 }
 
+/* 输入法靶子 key-sink（见 grid.js buildDom 注释）：
+   必须"可聚焦"，所以不能用 display:none / visibility:hidden（那样拿不到焦点）；
+   用 1px + 全透明藏在左上角，并且 pointer-events:none 保证它不吃鼠标事件。 */
+.key-sink {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: none;
+  outline: none;
+  opacity: 0;
+  resize: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .grid-canvas {
   position: relative;
 }
@@ -260,7 +280,7 @@ body.maxed::after {
   left: 0;
   z-index: 5;
   flex: none;
-  width: 48px;
+  width: 53px;
   background: var(--bg-header);
   border-right: 1px solid var(--head-line);
   border-bottom: 1px solid var(--head-line);
@@ -297,7 +317,7 @@ body.maxed::after {
   left: 0;
   z-index: 2;
   flex: none;
-  width: 48px;
+  width: 53px;
   text-align: center;
   line-height: 28px;
   font-size: 12px;
@@ -522,6 +542,45 @@ body.maxed::after {
 
 #st-clear-filter:hover {
   text-decoration: underline;
+}
+
+/* 筛选框右侧的小清除按钮：只在有内容时显示（visibility 而非 display，
+   避免出现/消失时输入框宽度跳动） */
+.mini-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin-left: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--fg-dim);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mini-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.mini-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.mini-btn.is-hidden {
+  visibility: hidden;
+}
+
+/* 冻结（只读）时给网格一个轻微提示：光标不再是编辑态 */
+body.is-locked .gc,
+body.is-locked .gchead,
+body.is-locked .grc {
+  cursor: default;
 }
 
 /* ---------- 查找栏（M9c） ---------- */

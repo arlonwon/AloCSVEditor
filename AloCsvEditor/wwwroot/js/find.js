@@ -1,5 +1,6 @@
 // 查找替换（M9c）：纯搜索核可单测；UI 控制器经 initFind 挂接。
 // 约定：只搜可见行（含表头行）；以格为单位匹配；上限 50000，超了 toast 并截断。
+import { isNativeInputContext } from './dom.js';
 
 const MATCH_LIMIT = 50000;
 
@@ -156,6 +157,7 @@ export function initFind(ctx) {
   }
 
   function replaceCurrent() {
+    if (grid.blockEdit(toast)) return; // 冻结（只读）
     if (st.idx < 0) return;
     const [r, c] = st.matches[st.idx];
     const before = grid.rows[r]?.[c] ?? '';
@@ -180,6 +182,7 @@ export function initFind(ctx) {
   }
 
   function replaceAll() {
+    if (grid.blockEdit(toast)) return; // 冻结（只读）
     if (st.matches.length === 0) return;
     const q = input.value;
     const o = { ...opts(), all: true };
@@ -254,7 +257,9 @@ export function initFind(ctx) {
   // 全局 Ctrl+F（编辑 textarea 里除外，由编辑器自己处理按键）。
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
-      if (e.target && e.target.tagName === 'TEXTAREA') return;
+      // 用户输入框内不抢（编辑器/筛选框/查找框各有自己的处理）；但网格的 key-sink 不算输入框，
+      // 否则会被提前 return 掉、Ctrl+F 落到 WebView2 的默认查找（系统搜索框）。
+      if (isNativeInputContext(e.target)) return;
       e.preventDefault();
       open();
     }

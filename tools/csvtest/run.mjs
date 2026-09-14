@@ -1,6 +1,6 @@
 // csv.js 单测（DESIGN.md §8.1）：node tools/csvtest/run.mjs
 // 约定：全部通过退出码 0，有失败非 0。
-import { parse, serialize, quoteIfNeeded, isCommentRow, commentLineText } from '../../AloCsvEditor/wwwroot/js/csv.js';
+import { parse, serialize, quoteIfNeeded, isCommentRow, commentLineText, toggleCommentText } from '../../AloCsvEditor/wwwroot/js/csv.js';
 import { rangeToTsv, rangesToTsv, writeBlock } from '../../AloCsvEditor/wwwroot/js/clipboard.js';
 import { UndoStack } from '../../AloCsvEditor/wwwroot/js/commands.js';
 import { fillValueAt, computeFill, findFillBoundary } from '../../AloCsvEditor/wwwroot/js/fill.js';
@@ -332,21 +332,23 @@ check('T45 ranges-to-tsv', () => {
     && rangesToTsv(rows, [{ r1: 1, c1: 0, r2: 1, c2: 2 }]) === 'd\te\tf';
 });
 
-// #7 尾巴数字递增：单格默认递增、补零保留、前缀一致多格等差、前缀不一/数字不在尾巴回落复制
-check('T46 fill-trailing-num', () =>
-  fillValueAt(['A001'], 1) === 'A002'
-  && fillValueAt(['A001'], 3) === 'A004'
-  && fillValueAt(['第3'], 2) === '第5'
-  && fillValueAt(['A1', 'A2'], 3) === 'A4'
-  && fillValueAt(['5'], 2) === '5' // 纯数字单格默认仍复制
-  && fillValueAt(['A1', 'B2'], 2) === 'A1' // 前缀不一回落循环
-  && fillValueAt(['第1周'], 2) === '第1周'); // 数字不在尾巴：复制（Excel 一致）
+// 单格拖动：默认纯复制，不做任何增量（原来尾巴数字会自动 +1，已改为需按 Ctrl）
+check('T46 fill-single-copy', () =>
+  fillValueAt(['A001'], 1) === 'A001'
+  && fillValueAt(['A001'], 3) === 'A001'
+  && fillValueAt(['第3'], 2) === '第3'
+  && fillValueAt(['5'], 2) === '5'
+  && fillValueAt(['第1周'], 2) === '第1周'
+  && fillValueAt(['A1', 'A2'], 3) === 'A4' // 多格：等差延续（本次未改）
+  && fillValueAt(['A1', 'B2'], 2) === 'A1'); // 多格：前缀不一回落循环
 
-// #7 Ctrl 强制序列：单数字 +1 步进
+// Ctrl 强制序列：单格递增——纯数字 +1 步进；带尾巴数字按后缀递增、补零位宽保留
 check('T47 fill-force-seq', () =>
   fillValueAt(['5'], 0, true) === '5'
   && fillValueAt(['5'], 2, true) === '7'
-  && fillValueAt(['A001'], 1, true) === 'A002');
+  && fillValueAt(['A001'], 1, true) === 'A002'
+  && fillValueAt(['A001'], 3, true) === 'A004'
+  && fillValueAt(['第3'], 2, true) === '第5');
 
 // 注释行解析（# 轮）：行首命中整行收单字段（分隔符不拆）；缩进/引号开头不是注释；CRLF/末尾无换行正常
 check('T48 parse-comment', () => {
@@ -393,6 +395,18 @@ check('T52 comment-line-text', () => {
   // 取消注释（去掉 #）→ 重新按分隔符拆列
   const back = parse(commentLineText(['#Alice', '30', 'Beijing'], ',').slice(1), ',').rows[0];
   return eq(back, ['Alice', '30', 'Beijing']) && !isCommentRow(back, ['#']);
+});
+
+// 整行注释开关（F4 / Ctrl+/）：加注释用 prefixes[0]；取消注释去掉命中的那个前缀；
+// 注释字符可自定义；注释行内部的逗号不被当分隔符。
+check('T53 toggle-comment', () => {
+  if (toggleCommentText(['Alice', '30'], ['#', '//']) !== '#Alice,30') return false; // 用第一个前缀
+  if (toggleCommentText(['#Alice', '30'], ['#', '//']) !== 'Alice,30') return false; // 取消（#）
+  if (toggleCommentText(['//Alice', '30'], ['#', '//']) !== 'Alice,30') return false; // 取消（//）
+  if (toggleCommentText(['Alice'], [';;']) !== ';;Alice') return false; // 自定义注释字符
+  if (toggleCommentText(['# a,b'], ['#']) !== ' a,b') return false; // 内部逗号不当分隔符
+  const t = toggleCommentText(['x,y'], ['#']);
+  return toggleCommentText([t], ['#']) === 'x,y'; // 往返
 });
 
 // 性能基线：5 万行 × 20 列解析+序列化计时（只打印，不判失败）

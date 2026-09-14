@@ -2,7 +2,7 @@
 // M4 起接入 csv.js 解析，M5 起接入 grid.js 网格。
 import { createBridge } from './bridge.js';
 import { state, initStore, setDirty } from './store.js';
-import { parse, serialize, isCommentRow } from './csv.js';
+import { parse, serialize, isCommentRow, toggleCommentText } from './csv.js';
 import { Grid, colName } from './grid.js';
 import { initFind } from './find.js';
 import { Editor } from './editor.js';
@@ -13,6 +13,7 @@ import { computeHidden } from './filter.js';
 import { showMenu, initMenu } from './menu.js';
 import { DEFAULT_COL_W } from './grid.js';
 import { settings, initSettings, loadSettings, setSetting, saveSoon } from './settings.js';
+import { isNativeInputContext } from './dom.js';
 
 const $ = (id) => document.getElementById(id);
 const bridge = createBridge();
@@ -56,6 +57,7 @@ const editor = new Editor(grid, {
   parseLine: (text) => parse(text, state.file?.delimiter ?? ',').rows[0] ?? [],
 });
 grid.hooks.onEditRequest = (r, c, initial) => {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   if (r < 0 || r >= grid.rows.length || c < 0 || c >= grid.nCols) return;
   editor.begin(r, c, initial);
 };
@@ -67,6 +69,7 @@ grid.hooks.onInsertCol = (right = true) => doInsertCols(right);
 // Delete 语义（#4）：整行选中删行，整列选中删列（筛选拦截/撤销走现有函数）；
 // 全选或普通区域只清内容（不清结构，防误触清表）。
 grid.hooks.onDeleteKey = () => {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   const range = grid.normSel();
   if (!range) return;
   const allRows = range.r1 === 0 && range.r2 === grid.rows.length - 1;
@@ -243,6 +246,25 @@ $('btn-zebra').addEventListener('click', () => {
   syncDisplayToggles();
 });
 
+// ---------- 冻结（只读）：锁定后所有改动数据的入口都被 grid.blockEdit() 拦下 ----------
+// 未持久化：属"临时看一眼"的会话态，重开程序即解冻（避免忘了解冻又找不到原因）。
+function applyLocked(on) {
+  grid.locked = !!on;
+  $('btn-freeze')?.classList.toggle('on', grid.locked);
+  document.body.classList.toggle('is-locked', grid.locked);
+  $('btn-freeze')?.setAttribute('title', grid.locked
+    ? '已冻结（只读）：表格不可编辑。点此解冻'
+    : '冻结（只读）：锁定后表格不可编辑、只能查看；再点一次解冻');
+  $('st-msg').textContent = grid.locked ? '已冻结（只读）' : '已解冻';
+}
+
+$('btn-freeze').addEventListener('click', () => {
+  // 点按钮时编辑框已因 blur 自动提交，这里不必再处理。
+  applyLocked(!grid.locked);
+  toast(grid.locked ? '已冻结（只读）：表格不可编辑，点「冻结」解冻' : '已解冻，可以编辑了');
+  grid.scroller.focus({ preventScroll: true });
+});
+
 // ---------- 筛选（M9b-2）：关键字过滤行，表头行永不隐藏 ----------
 
 const filterText = $('filter-text');
@@ -284,10 +306,12 @@ function clearFilter() {
   filterScope.value = '-1';
   clearTimeout(filterTimer);
   refreshStats();
+  syncFilterClearBtn();
   grid.scroller.focus({ preventScroll: true });
 }
 
 filterText.addEventListener('input', () => {
+  syncFilterClearBtn();
   clearTimeout(filterTimer);
   filterTimer = setTimeout(() => refreshStats(), 150);
 });
@@ -301,6 +325,67 @@ filterText.addEventListener('keydown', (e) => {
 filterScope.addEventListener('change', () => refreshStats());
 $('st-clear-filter').addEventListener('click', clearFilter);
 
+// ---- 筛选框自己的右键菜单 + 清除按钮（只动输入框，不碰网格数据；冻结时依然可用）----
+const btnFilterClear = $('btn-filter-clear');
+
+// 有内容才显示清除按钮（用 visibility 而非 display，避免输入框宽度跳动）。
+function syncFilterClearBtn() {
+  btnFilterClear.classList.toggle('is-hidden', filterText.value === '');
+}
+
+// 输入框改完值后：聚焦回输入框、同步按钮、并触发筛选刷新（复用 input 监听的防抖）。
+function afterFilterEdit() {
+  filterText.focus();
+  syncFilterClearBtn();
+  filterText.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function filterDeleteSel() {
+  const a = filterText.selectionStart;
+  const b = filterText.selectionEnd;
+  if (a === b) filterText.value = ''; // 没选中 → 整个清空
+  else filterText.setRangeText('', a, b, 'end');
+  afterFilterEdit();
+}
+
+async function filterClip(kind) {
+  const a = filterText.selectionStart;
+  const b = filterText.selectionEnd;
+  if (kind === 'copy') {
+    const text = filterText.value.slice(a, b) || filterText.value; // 没选中 → 拷全文
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      toast('复制失败');
+    }
+    return;
+  }
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text) return;
+    filterText.setRangeText(text, a, b, 'end'); // 有选中则替换
+    afterFilterEdit();
+  } catch {
+    toast('读取剪贴板失败');
+  }
+}
+
+filterText.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  showMenu(e.clientX, e.clientY, [
+    { label: '复制', action: () => filterClip('copy') },
+    { label: '粘贴', action: () => filterClip('paste') },
+    { label: '删除', action: () => filterDeleteSel() },
+  ]);
+});
+
+btnFilterClear.addEventListener('click', () => {
+  clearFilter(); // 内含清 empty + 作用列复位 + 刷新
+  filterText.focus();
+});
+syncFilterClearBtn();
+
 // ---------- 行列操作 + 排序（M9） ----------
 
 // 结构性修改后钳制选区（删超界时回到 A1）。
@@ -311,6 +396,7 @@ function fixSel() {
 }
 
 function doInsertRows(below) {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   if (grid.hidden.size > 0) {
     toast('筛选状态下不可插入行，请先清除筛选');
     return;
@@ -331,6 +417,7 @@ function doInsertRows(below) {
 }
 
 function doDeleteRows() {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   if (grid.hidden.size > 0) {
     toast('筛选状态下不可删除行，请先清除筛选');
     return;
@@ -344,6 +431,7 @@ function doDeleteRows() {
 }
 
 function doInsertCols(right) {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   if (grid.hidden.size > 0) {
     toast('筛选状态下不可插入列，请先清除筛选');
     return;
@@ -364,6 +452,7 @@ function doInsertCols(right) {
 }
 
 function doDeleteCols() {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   if (grid.hidden.size > 0) {
     toast('筛选状态下不可删除列，请先清除筛选');
     return;
@@ -377,6 +466,7 @@ function doDeleteCols() {
 }
 
 function sortBy(col, dir) {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   if (grid.hidden.size > 0) {
     toast('筛选状态下不可排序，请先清除筛选');
     return;
@@ -408,6 +498,29 @@ function clearSort() {
   grid.sortMark = null;
   grid.render();
   commitChange({ struct: { op: 'sort', col: -1, dir: 'orig', prevOrder, prevMark } });
+}
+
+// F4 / Ctrl+/：整行注释 ↔ 取消注释。
+// 仅当选中范围覆盖整行时生效（只选中某个格时给提示，避免误操作）；
+// 注释字符取设置里 commentPrefixes 的第一个；取消注释按当前分隔符重解析恢复多列。
+function toggleCommentRows() {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
+  const range = grid.normSel();
+  if (!range || grid.rows.length === 0) return;
+  if (range.c1 !== 0 || range.c2 !== grid.nCols - 1) {
+    toast('请先选中整行（点左侧行号）再按 F4 / Ctrl+/');
+    return;
+  }
+  const cells = [];
+  for (let r = range.r1; r <= range.r2; r++) {
+    const wasComment = grid.isComment(r);
+    const text = toggleCommentText(grid.rows[r], grid.commentPrefixes, grid.delimiter);
+    // 注释 → 整行收成单字段不透明文本；取消注释 → 按分隔符拆回多列（与编辑框内改标记行为一致）
+    const values = wasComment ? (parse(text, grid.delimiter).rows[0] ?? ['']) : [text];
+    cells.push(...grid.writeRowFromLine(r, values));
+  }
+  grid.render();
+  commitChange(cells.length > 0 ? { cells } : null);
 }
 
 // 结构性修改应用：redo=false 撤销，true 重做。快照数组视为不可变（恢复时切片，不别名）。
@@ -510,9 +623,16 @@ function buildMenu(kind) {
     { label: '删除列', hint: 'Del', action: () => doDeleteCols() },
   ];
   if (kind === 'row') {
-    // 右键时 sel 已是该整行：当前表头打勾。
+    // 右键时 sel 已是该整行：当前是否注释行决定菜单文案。
     const hr = grid.sel ? grid.sel.fr : -1;
+    const commented = hr >= 0 && grid.isComment(hr);
     return [
+      {
+        label: commented ? '取消注释该行' : '注释该行',
+        hint: 'F4',
+        action: () => toggleCommentRows(),
+      },
+      { sep: true },
       {
         label: (grid.headerMode && hr === grid.headerRow ? '✓ ' : '') + '设为表头行',
         action: () => setHeaderRowFromMenu(),
@@ -545,6 +665,7 @@ function buildMenu(kind) {
 }
 
 async function pasteFromClipboard() {
+  if (grid.blockEdit(toast)) return; // 冻结（只读）
   // navigator.clipboard.readText 在 WebView2 桌面端通常直接允许；失败则 toast 引导 Ctrl+V。
   try {
     const text = await navigator.clipboard.readText();
@@ -871,6 +992,17 @@ document.addEventListener('keydown', (e) => {
     if (e.shiftKey) $('btn-saveas').click();
     else doSave();
   }
+});
+
+// F4 / Ctrl+/：整行注释开关。用户输入框内不接管（判定见 dom.js，网格的 key-sink 不算输入框）。
+document.addEventListener('keydown', (e) => {
+  if (isNativeInputContext(e.target)) return;
+  const f4 = e.key === 'F4';
+  const ctrlSlash = (e.ctrlKey || e.metaKey) && !e.altKey
+    && (e.key === '/' || e.code === 'Slash');
+  if (!f4 && !ctrlSlash) return;
+  e.preventDefault();
+  toggleCommentRows();
 });
 
 // ---------- 新建文档（#1）：空表 + 未命名上下文，保存时弹对话框，按选定的分隔符写 ----------

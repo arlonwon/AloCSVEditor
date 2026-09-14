@@ -158,6 +158,21 @@ export function commentLineText(row, delimiter = ',') {
   return row.slice(0, end).map((f) => String(f ?? '')).join(delimiter);
 }
 
+// 注释行开关：已是注释行则去掉命中的那个前缀，否则在行首加上 prefixes[0]
+//（注释字符取设置里的第一个，见 settings.commentPrefixes）。
+// 返回“整行文本”：注释行是不透明单字段文本，取消注释后由调用方按分隔符重解析恢复多列。
+export function toggleCommentText(row, prefixes, delimiter = ',') {
+  const text = commentLineText(row, delimiter);
+  if (isCommentRow(row, prefixes)) {
+    for (const p of prefixes ?? []) {
+      if (p && text.startsWith(p)) return text.slice(p.length);
+    }
+    return text;
+  }
+  const p = (prefixes && prefixes[0]) || '#';
+  return p + text;
+}
+
 // 序列化引号策略（最小化 diff）：仅当字段含分隔符/引号/换行/回车时加引号，内部引号双写。
 // 首尾空格不加引号（与 Excel 行为一致）。
 export function quoteIfNeeded(value, delimiter) {

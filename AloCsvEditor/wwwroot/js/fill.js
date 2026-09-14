@@ -15,21 +15,20 @@ const FILL_AUTO_STEP = 60;
 // ---------- 纯函数（可单测） ----------
 
 // 沿轴取某位置的值。seed 为源线上按序值，idx 为相对源起点偏移（可负：上/左填）。
-// 规则：单值复制；全数字等差则延续（浮点取 12 位有效数字去抖）；
-// 尾巴数字（A001/第1周）后缀递增、补零位宽保留；否则循环重复。
-// forceSeq（Ctrl 拖）：单数字强制 +1 步进（默认单值是复制）。
+// 单值（单格拖动）：默认纯复制，只有按住 Ctrl（forceSeq）才递增——
+//   纯数字走 +1 步进；带尾巴数字的（A001/第3周）按后缀递增且补零位宽保留。
+// 多值（多格拖动，行为本次未改）：全数字等差则延续（浮点取 12 位有效数字去抖）；
+//   尾巴数字同前缀等差；否则循环重复。
 export function fillValueAt(seed, idx, forceSeq = false) {
   const n = seed.length;
   if (n === 0) return '';
   if (n === 1) {
     const v = seed[0];
+    if (!forceSeq) return v; // 单格默认纯复制，不做任何增量
     if (v.trim() !== '' && !Number.isNaN(Number(v))) {
-      // 纯数字单格：默认复制，Ctrl 强制序列。
-      if (!forceSeq) return v;
       const num = Number(v) + idx;
       return String(Number.isInteger(num) ? num : Number(num.toPrecision(12)));
     }
-    // 非纯数字：尾巴数字默认就递增（Excel 行为）。
     const t = splitTrail(v);
     if (t) return t.prefix + padNum(Number(t.num) + idx, t.num.length);
     return v;
@@ -360,6 +359,7 @@ export function initFill(ctx) {
   grid.scroller.addEventListener('mousedown', (e) => {
     if (e.button !== 0 || editor.isEditing() || !grid.normSel()) return;
     if (e.target.closest('.fill-handle')) {
+      if (grid.blockEdit(toast)) return; // 冻结（只读）：填充会改数据
       e.stopPropagation();
       e.preventDefault();
       st.mode = 'fill';
@@ -372,6 +372,7 @@ export function initFill(ctx) {
       return;
     }
     if (onSelBorder(e.clientX, e.clientY)) {
+      if (grid.blockEdit(toast)) return; // 冻结（只读）：拖拽移动/复制会改数据
       e.stopPropagation();
       e.preventDefault();
       const cell = cellFromPoint(e.clientX, e.clientY);
