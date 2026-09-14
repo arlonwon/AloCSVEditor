@@ -156,7 +156,7 @@ Windows 上的轻量现代 CSV 编辑器。绿色免安装，双击即用；自�
 
 ## 关于
 
-- 作者：**阿龙**（GitHub：[@arlonwon](https://github.com/arlonwon)）
+- 作者：**Arlon**（GitHub：[@arlonwon](https://github.com/arlonwon)）
 - 本软件为开源软件，采用 GPL-3.0 许可。
 - 免责声明：本软件按"现状"提供，不附任何明示或默示的担保。
 - 使用中若发现问题或有改进建议，欢迎提 Issue 或 PR。
