@@ -338,17 +338,23 @@ check('T46 fill-single-copy', () =>
   && fillValueAt(['A001'], 3) === 'A001'
   && fillValueAt(['第3'], 2) === '第3'
   && fillValueAt(['5'], 2) === '5'
-  && fillValueAt(['第1周'], 2) === '第1周'
+  && fillValueAt(['第1周'], 2) === '第1周' // 单格不按 Ctrl 一律纯复制
   && fillValueAt(['A1', 'A2'], 3) === 'A4' // 多格：等差延续（本次未改）
   && fillValueAt(['A1', 'B2'], 2) === 'A1'); // 多格：前缀不一回落循环
 
-// Ctrl 强制序列：单格递增——纯数字 +1 步进；带尾巴数字按后缀递增、补零位宽保留
+// Ctrl 强制序列：单格递增——纯数字 +1 步进；数字在任意位置（取最后一段完整数字）、前后文字原样保留
 check('T47 fill-force-seq', () =>
   fillValueAt(['5'], 0, true) === '5'
   && fillValueAt(['5'], 2, true) === '7'
   && fillValueAt(['A001'], 1, true) === 'A002'
   && fillValueAt(['A001'], 3, true) === 'A004'
-  && fillValueAt(['第3'], 2, true) === '第5');
+  && fillValueAt(['第3'], 2, true) === '第5'
+  // 数字不在行尾：从尾部往前找最后一段完整数字，且前后文字保留
+  && fillValueAt(['测试123测试'], 1, true) === '测试124测试' // 取 123 而不是 3
+  && fillValueAt(['第1周'], 2, true) === '第3周'             // 后面还有文字也保留
+  && fillValueAt(['X007Y'], 2, true) === 'X009Y'             // 补零位宽保留
+  && fillValueAt(['A1B2'], 1, true) === 'A1B3'               // 多段数字取最后一段
+  && fillValueAt(['abc'], 1, true) === 'abc');               // 无数字：原样
 
 // 注释行解析（# 轮）：行首命中整行收单字段（分隔符不拆）；缩进/引号开头不是注释；CRLF/末尾无换行正常
 check('T48 parse-comment', () => {

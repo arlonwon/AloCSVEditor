@@ -3,6 +3,32 @@
 // 与 Grid 解耦：经 grid.hooks.onEditRequest 进入，经 hooks.onCommit 上报修改。
 import { HEADER_H, ROW_NUM_W } from './grid.js';
 
+// 把点击坐标换算成 textarea 里的字符偏移。
+// 浏览器不对 textarea 做字符级命中测试（caretRangeFromPoint 只返回到元素），
+// 所以用一个同字体/同内边距/同宽度、换行方式也一致的隐形镜像 div 来量。
+// 命中不到（点在文本外）返回 null，调用方不接管、交给浏览器默认行为。
+function caretOffsetAt(ta, clientX, clientY) {
+  const cs = getComputedStyle(ta);
+  const r = ta.getBoundingClientRect();
+  const mirror = document.createElement('div');
+  // 两个关键点（实测）：
+  //   ① 必须盖在最上层（编辑框 z-index:10）——否则 caretRangeFromPoint 命中的是编辑框本身；
+  //   ② **不能用 pointer-events:none** —— caretRangeFromPoint 同样遵循它，加了就完全量不到。
+  //      这里不存在误挡鼠标的风险：镜像在同一次同步调用里创建并移除，鼠标事件插不进来。
+  mirror.style.cssText = 'position:fixed;opacity:0;overflow:hidden;z-index:2147483647;'
+    + `left:${r.left}px;top:${r.top}px;width:${cs.width};height:${cs.height};`
+    + `font:${cs.font};line-height:${cs.lineHeight};letter-spacing:${cs.letterSpacing};`
+    + `padding:${cs.padding};border:${cs.border};box-sizing:${cs.boxSizing};`
+    + `white-space:${cs.whiteSpace};word-wrap:${cs.wordWrap};overflow-wrap:${cs.overflowWrap};`;
+  mirror.textContent = ta.value;
+  document.body.append(mirror);
+  let off = null;
+  const cr = document.caretRangeFromPoint?.(clientX, clientY);
+  if (cr && cr.startContainer && mirror.contains(cr.startContainer)) off = cr.startOffset;
+  mirror.remove();
+  return off;
+}
+
 export class Editor {
   constructor(grid, hooks = {}) {
     this.grid = grid;
@@ -18,6 +44,17 @@ export class Editor {
     grid.canvas.append(this.box);
     this.area.addEventListener('keydown', (e) => this.onKey(e));
     this.area.addEventListener('input', () => this.autosize());
+    // 刚进编辑时（内容已全选）用户往往立刻点一下想落光标。这一下会被浏览器算作"三击"
+    // （前两击是进入编辑的那次双击）→ 三击默认行为是"全选"，于是点来点去还是全选、光标进不去。
+    // 处理：拦掉三击全选，直接用镜像量出点击处的字符偏移，把光标放过去（见 caretOffsetAt）。
+    this.area.addEventListener('mousedown', (e) => {
+      if (e.detail < 3) return;
+      if (!this._openedAt || Date.now() - this._openedAt > 700) return; // 只针对"刚进编辑"的那种三击
+      const pos = caretOffsetAt(this.area, e.clientX, e.clientY);
+      if (pos == null) return;
+      e.preventDefault();
+      this.area.setSelectionRange(pos, pos);
+    });
     // 失焦/滚动直接提交（M6 简化语义：等同回车下移之外的"原地提交"）。
     this.area.addEventListener('blur', () => {
       if (this.active) this.commit('none');
@@ -53,6 +90,7 @@ export class Editor {
     this.box.style.top = (fi >= 0 ? fi * g.rh() : HEADER_H + g.frozenHeight() + bp * g.rh()) + 'px';
     this.box.style.minWidth = (comment ? g.colX(g.nCols) : g.colW[c]) + 'px';
     this.area.value = initial ?? original;
+    this._openedAt = Date.now(); // 供 mousedown 判断"是不是刚进编辑就紧跟的三击"
     this.area.focus();
     // initial 非空 = 直接打字进来的（含输入法提交的整段文本）：光标落到末尾，后续字符追加。
     // initial 为空 = F2/双击：保留原值并全选，方便直接覆盖。

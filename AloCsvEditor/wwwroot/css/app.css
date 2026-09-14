@@ -246,11 +246,13 @@ body.maxed::after {
 
 /* 输入法靶子 key-sink（见 grid.js buildDom 注释）：
    必须"可聚焦"，所以不能用 display:none / visibility:hidden（那样拿不到焦点）；
-   用 1px + 全透明藏在左上角，并且 pointer-events:none 保证它不吃鼠标事件。 */
+   用 1px + 全透明藏起来，并且 pointer-events:none 保证它不吃鼠标事件。
+   定位用 fixed + 视口坐标（由 grid.placeKeySink() 贴到活动格上）：既不参与滚动内容
+   （聚焦时不会把视图滚走），又能让输入法候选窗出现在正在编辑的单元格旁边。 */
 .key-sink {
-  position: absolute;
-  top: 0;
+  position: fixed;
   left: 0;
+  top: 0;
   width: 1px;
   height: 1px;
   padding: 0;

@@ -114,6 +114,9 @@ export class Grid {
     // 后面的字母才开始组字——这正是"首字母进不了输入法"的根因。
     // 解决：让焦点常驻可编辑元素，输入法从第一个键起就有目标。
     // display:none / visibility:hidden 的元素**拿不到焦点**，所以用 1px + opacity:0 藏起来。
+    // 位置：`position: fixed` 且由 placeKeySink() 跟着活动格走——这样
+    //   (a) 它不参与滚动内容，聚焦它不会把视图滚走；
+    //   (b) 输入法候选窗出现在正在编辑的单元格旁边，而不是跑到窗体角落。
     this.keySink = document.createElement('textarea');
     this.keySink.className = 'key-sink';
     this.keySink.dataset.keysink = '1'; // 供剪贴板/快捷键判断"这是网格的按键接收器，不是用户的输入框"
@@ -122,13 +125,32 @@ export class Grid {
     this.keySink.setAttribute('aria-hidden', 'true');
     // 焦点重定向：任何 scroller.focus() 实际都落到 key-sink（一处顶掉全部调用点）。
     this.scroller.addEventListener('focus', () => {
-      if (document.activeElement !== this.keySink) this.keySink.focus({ preventScroll: true });
+      if (document.activeElement !== this.keySink) {
+        this.placeKeySink();
+        this.keySink.focus({ preventScroll: true });
+      }
     });
-    // 打进来的字符（含输入法组字结果）→ 作为初值进入编辑；取完即清空，避免攒字。
+    // 取值时机要宽松：真实输入法的提交路径与模拟不一致——
+    //   compositionend 时 value 未必已更新；紧随其后的 input 事件 isComposing 也可能仍为真。
+    // 所以：组合结束/普通输入后**推迟一个宏任务**再取，并额外用 keyup 兜底。
+    this._composing = false;
+    const trace = (t) => { this._sinkTrace = (this._sinkTrace || '') + t; this.showSinkTrace(); };
+    this.keySink.addEventListener('compositionstart', () => { this._composing = true; this._sinkTrace = ''; trace('cs '); });
+    this.keySink.addEventListener('compositionupdate', () => trace('cu '));
+    this.keySink.addEventListener('compositionend', () => {
+      this._composing = false;
+      trace('ce[' + this.keySink.value + '] ');
+      setTimeout(() => this.takeKeySink(true), 0);
+    });
     this.keySink.addEventListener('input', (e) => {
-      if (!e.isComposing) this.takeKeySink();
+      trace('in' + (e.isComposing ? '1 ' : '0 '));
+      if (!e.isComposing) this._composing = false;
+      if (!this._composing) setTimeout(() => this.takeKeySink(true), 0);
     });
-    this.keySink.addEventListener('compositionend', () => this.takeKeySink());
+    this.keySink.addEventListener('keyup', () => {
+      trace('ku ');
+      if (!this._composing) setTimeout(() => this.takeKeySink(true), 0);
+    });
     this.scroller.append(this.canvas, this.keySink);
     this.scroller.style.display = 'none';
     this.host.append(this.scroller, this.emptyEl);
@@ -277,13 +299,45 @@ export class Grid {
   }
 
   // 取走 key-sink 里已产生的文本（普通打字或输入法提交的结果），作为编辑初值进入编辑；取完清空。
-  // compositionend 之后还会跟一个 input 事件，靠"值为空即忽略"天然去重。
-  takeKeySink() {
+  // 多个事件会重复调用（input / compositionend / keyup），靠"值为空即忽略"天然去重。
+  takeKeySink(traced) {
     const text = this.keySink.value;
     if (!text) return;
     this.keySink.value = '';
+    if (traced) {
+      this._sinkTrace = (this._sinkTrace || '') + 'TAKE[' + text + '] ';
+      this.showSinkTrace();
+    }
     if (!this.sel) return;
     this.hooks.onEditRequest?.(this.sel.fr, this.sel.fc, text);
+  }
+
+  // 把 key-sink 贴到当前活动格的屏幕位置（fixed 定位，用视口坐标）。
+  // 目的：① 输入法候选窗出现在正在编辑的单元格旁，而不是跑到窗体角落；
+  //       ② 它不参与滚动内容，聚焦时浏览器不会把视图滚回内容原点。
+  placeKeySink() {
+    const s = this.sel;
+    if (!s || !this.keySink) return;
+    const r = s.fr;
+    const c = s.fc;
+    if (r < 0 || r >= this.rows.length || c < 0 || c >= this.nCols) return;
+    const fi = this.frozenList.indexOf(r);
+    const bp = fi < 0 ? this.visPos[r] : -1;
+    if (fi < 0 && bp < 0) return;
+    const sr = this.scroller.getBoundingClientRect();
+    const left = sr.left + ROW_NUM_W + this.colX(c) - this.scroller.scrollLeft;
+    // 冻结带是 sticky（钉在列头下方），不受 scrollTop 影响；普通行才减 scrollTop。
+    const top = fi >= 0
+      ? sr.top + HEADER_H + fi * this.rh()
+      : sr.top + HEADER_H + this.frozenHeight() + bp * this.rh() - this.scroller.scrollTop;
+    this.keySink.style.left = Math.round(left) + 'px';
+    this.keySink.style.top = Math.round(top) + 'px';
+  }
+
+  // 临时诊断：把 key-sink 收到的事件序列显示在状态栏（定位输入法提交路径用；问题确认后可删）。
+  showSinkTrace() {
+    const el = document.getElementById('st-msg');
+    if (el && this._sinkTrace) el.textContent = '输入事件: ' + this._sinkTrace;
   }
 
   // 冻结（只读）闸门：所有会改动数据的入口（编辑/删除/粘贴/填充/插删行列/排序/替换）
@@ -422,6 +476,7 @@ export class Grid {
     this.renderRows();
     this.positionSel();
     this.renderExtra();
+    this.placeKeySink(); // 输入法靶子跟着活动格走（选择/滚动变化都在这里同步）
   }
 
   // 通栏注释单元格：一个 div 占满整宽，不按列拆（dataset.c=0，选中/编辑/查找走单格逻辑）。

@@ -30,7 +30,7 @@ export function fillValueAt(seed, idx, forceSeq = false) {
       return String(Number.isInteger(num) ? num : Number(num.toPrecision(12)));
     }
     const t = splitTrail(v);
-    if (t) return t.prefix + padNum(Number(t.num) + idx, t.num.length);
+    if (t) return t.prefix + padNum(Number(t.num) + idx, t.num.length) + t.suffix;
     return v;
   }
   const nums = seed.map((v) => (v.trim() !== '' && !Number.isNaN(Number(v)) ? Number(v) : null));
@@ -49,9 +49,9 @@ export function fillValueAt(seed, idx, forceSeq = false) {
       return String(Number.isInteger(clean) ? clean : Number(clean.toPrecision(12)));
     }
   }
-  // 尾巴数字同前缀：后缀等差（如 A1,A2 → A4）。
+  // 各段"最后一段数字"的 前缀/后缀 都相同：数字等差，前后文字原样保留（如 A1,A2 → A4；第1周,第2周 → 第4周）。
   const trails = seed.map(splitTrail);
-  if (trails.every((t) => t !== null && t.prefix === trails[0].prefix)) {
+  if (trails.every((t) => t !== null && t.prefix === trails[0].prefix && t.suffix === trails[0].suffix)) {
     const tnums = trails.map((t) => Number(t.num));
     const step = tnums[1] - tnums[0];
     let ok = true;
@@ -63,17 +63,26 @@ export function fillValueAt(seed, idx, forceSeq = false) {
     }
     if (ok) {
       const width = Math.max(...trails.map((t) => t.num.length));
-      return trails[0].prefix + padNum(tnums[0] + step * idx, width);
+      return trails[0].prefix + padNum(tnums[0] + step * idx, width) + trails[0].suffix;
     }
   }
   // 循环重复（负索引正确回绕）。
   return seed[((idx % n) + n) % n];
 }
 
-// 拆尾巴数字："A001"→{prefix:'A',num:'001'}；纯数字→{prefix:'',num}；无数字后缀→null。
+// 取字符串里"最后一段连续数字"（从尾部往前找，而不是只认行尾）：
+//   "A001"       -> {prefix:'A',    num:'001', suffix:''}
+//   "测试123测试" -> {prefix:'测试', num:'123', suffix:'测试'}   ← 完整一段 123，不是单个 3
+//   "第3周"       -> {prefix:'第',   num:'3',   suffix:'周'}
+//   "A1B2"       -> {prefix:'A1B',  num:'2',   suffix:''}       ← 多段数字时取最后一段
+//   纯数字        -> {prefix:'',     num:'3',   suffix:''}
+//   无数字        -> null
+// 拖动填充只改这一段数字，前后的文字原样保留。
 function splitTrail(v) {
-  const m = /^(.*?)(\d+)$/.exec(String(v ?? ''));
-  return m ? { prefix: m[1], num: m[2] } : null;
+  // (\D*)$ 把匹配锚在行尾，等效于"从后往前找最后一段数字"；
+  // 因为 \D 不能吃数字，回溯后 (\d+) 必然是最后一段完整的数字。
+  const m = /^(.*?)(\d+)(\D*)$/.exec(String(v ?? ''));
+  return m ? { prefix: m[1], num: m[2], suffix: m[3] } : null;
 }
 
 // 补零：padNum(2,3)='002'；超宽自然增长（999+1→1000）；负数保符号。
