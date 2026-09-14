@@ -11,6 +11,9 @@
   --fg-dim: #9d9d9d;
   --fg-faint: #6f6f6f;
   --border: #3c3c3c;
+  /* 表头专用网格线：--border(#3c3c3c) 与表头底色 --bg-header(#3a3a3a) 几乎同色会看不见，
+     故表头（.gchead/.grc/.grid-corner）单独用此色；数据区仍用 --border（--bg 与它反差足够）。 */
+  --head-line: #4d4d4d;
   --accent: #2f81f7;
   --selection: rgba(47, 129, 247, 0.25);
   --hover: rgba(255, 255, 255, 0.06);
@@ -30,6 +33,8 @@
   --fg-dim: #616161;
   --fg-faint: #8c8c8c;
   --border: #d4d4d4;
+  /* 同上：表头底色 #d8d8d8 与 --border #d4d4d4 反差太小，表头线单独取值 */
+  --head-line: #b4b4b4;
   --accent: #0969da;
   --selection: rgba(9, 105, 218, 0.18);
   --hover: rgba(0, 0, 0, 0.05);
@@ -257,8 +262,8 @@ body.maxed::after {
   flex: none;
   width: 48px;
   background: var(--bg-header);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--head-line);
+  border-bottom: 1px solid var(--head-line);
   cursor: pointer;
 }
 
@@ -268,8 +273,8 @@ body.maxed::after {
   line-height: 30px;
   font-size: 12px;
   color: var(--fg-dim);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--head-line);
+  border-bottom: 1px solid var(--head-line);
   cursor: pointer;
   overflow: hidden;
 }
@@ -298,8 +303,8 @@ body.maxed::after {
   font-size: 12px;
   color: var(--fg-dim);
   background: var(--bg-header);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--head-line);
+  border-bottom: 1px solid var(--head-line);
   cursor: pointer;
   overflow: hidden;
 }
