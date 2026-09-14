@@ -88,16 +88,30 @@ export function pasteText(ctx, text) {
   return true;
 }
 
+// 复制/剪切/粘贴是否发生在“可编辑控件”内（单元格编辑框、工具栏筛选框、查找/替换框等）。
+// 这些场景必须交还浏览器原生行为，网格不得接管：否则在这些框里按 Ctrl+C/V 会被网格吃掉
+// （粘贴会把内容误写进单元格、复制会拷成表格内容）。
+// 判据用“事件目标”为主，并兜底看当前焦点元素，防止因焦点/目标不一致而漏判。
+function inEditableControl(e, editor) {
+  if (editor.isEditing()) return true; // 单元格编辑框（textarea）
+  const t = e.target;
+  if (t instanceof HTMLElement
+    && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return true;
+  const a = document.activeElement;
+  return !!(a instanceof HTMLElement
+    && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable));
+}
+
 export function initClipboard({ grid, editor, toast, onModify }) {
   document.addEventListener('copy', (e) => {
-    if (editor.isEditing()) return; // 编辑中走原生行为
+    if (inEditableControl(e, editor)) return; // 编辑中/输入框内走原生行为
     if (grid.allRanges().length === 0) return;
     e.clipboardData.setData('text/plain', selectionCopyText(grid));
     e.preventDefault();
   });
 
   document.addEventListener('cut', (e) => {
-    if (editor.isEditing()) return;
+    if (inEditableControl(e, editor)) return;
     if (grid.allRanges().length === 0) return;
     e.clipboardData.setData('text/plain', selectionCopyText(grid));
     e.preventDefault();
@@ -118,7 +132,7 @@ export function initClipboard({ grid, editor, toast, onModify }) {
   });
 
   document.addEventListener('paste', (e) => {
-    if (editor.isEditing()) return;
+    if (inEditableControl(e, editor)) return;
     const text = e.clipboardData.getData('text/plain');
     if (!text || grid.rows.length === 0) return;
     e.preventDefault();

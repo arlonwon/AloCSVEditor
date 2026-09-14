@@ -309,8 +309,12 @@ body.maxed::after {
   overflow: hidden;
 }
 
+/* 选中行行号：底色必须保持“不透明”。行号格是 sticky 钉在左侧的，横向滚动时单元格会从它
+   底下穿过；若把 background 整个换成半透明高亮色（--selection 是 rgba），底下内容就会透出来。
+   因此改为“不透明底色 + 一层半透明高亮”，视觉效果相同但不再穿透。 */
 .grc.row-active {
-  background: var(--selection);
+  background-color: var(--bg-header);
+  background-image: linear-gradient(var(--selection), var(--selection));
   color: var(--fg);
   font-weight: 600;
 }
@@ -620,15 +624,17 @@ body.maxed::after {
   cursor: cell;
 }
 
+/* 滚动条：原先 12px 轨道 / 6px 可见滑块太细不好拖，整体放大一倍（24px / 12px）。
+   thumb 的 border 用 --bg 制造内缩，视觉上仍是“悬浮胶囊”，只是更粗更好抓。 */
 .grid-scroll::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 24px;
+  height: 24px;
 }
 
 .grid-scroll::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 6px;
-  border: 3px solid var(--bg);
+  border-radius: 12px;
+  border: 6px solid var(--bg);
 }
 
 .grid-scroll::-webkit-scrollbar-thumb:hover {
@@ -731,8 +737,10 @@ body {
   color: var(--fg);
 }
 
+/* 十字高亮行号：同上，必须保留不透明底，否则内容同样会透出来 */
 :where(.grc).cross-row {
-  background: var(--cross);
+  background-color: var(--bg-header);
+  background-image: linear-gradient(var(--cross), var(--cross));
   color: var(--fg);
 }
 
