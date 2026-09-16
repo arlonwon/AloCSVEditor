@@ -4,6 +4,14 @@ Windows 上的轻量现代 CSV 编辑器。绿色免安装，双击即用；自�
 
 用 Excel 打开 CSV 会悄悄改数据（`00123` 变成 `123`、长数字变科学计数法），专用 CSV 工具又普遍老旧、收费或有坑——这个工具就是为了解决这些事。
 
+> **English**
+> **AloCsvEditor — a lightweight, portable CSV viewer and editor for Windows**, and a leaner alternative to Excel for plain CSV files. A single `.exe`, no installation required.
+> Unlike Excel, it doesn't silently rewrite your data: **leading zeros are preserved** (`00123` stays `00123`) and **long numbers stay out of scientific notation**.
+> **Large CSV files** open smoothly, the **encoding is auto-detected** (no garbled text), the **delimiter is customizable**, and the grid feels like a spreadsheet.
+> Requirements: Windows 10 / 11 (**64-bit only**) with the WebView2 Runtime. Free and open source under **GPL-3.0**.
+>
+> ⬇ **[Download AloCsvEditor.exe](https://github.com/arlonwon/AloCSVEditor/releases/latest/download/AloCsvEditor.exe)**
+
 ---
 
 ## 下载
