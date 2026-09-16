@@ -134,22 +134,17 @@ export class Grid {
     //   compositionend 时 value 未必已更新；紧随其后的 input 事件 isComposing 也可能仍为真。
     // 所以：组合结束/普通输入后**推迟一个宏任务**再取，并额外用 keyup 兜底。
     this._composing = false;
-    const trace = (t) => { this._sinkTrace = (this._sinkTrace || '') + t; this.showSinkTrace(); };
-    this.keySink.addEventListener('compositionstart', () => { this._composing = true; this._sinkTrace = ''; trace('cs '); });
-    this.keySink.addEventListener('compositionupdate', () => trace('cu '));
+    this.keySink.addEventListener('compositionstart', () => { this._composing = true; });
     this.keySink.addEventListener('compositionend', () => {
       this._composing = false;
-      trace('ce[' + this.keySink.value + '] ');
-      setTimeout(() => this.takeKeySink(true), 0);
+      setTimeout(() => this.takeKeySink(), 0);
     });
     this.keySink.addEventListener('input', (e) => {
-      trace('in' + (e.isComposing ? '1 ' : '0 '));
       if (!e.isComposing) this._composing = false;
-      if (!this._composing) setTimeout(() => this.takeKeySink(true), 0);
+      if (!this._composing) setTimeout(() => this.takeKeySink(), 0);
     });
     this.keySink.addEventListener('keyup', () => {
-      trace('ku ');
-      if (!this._composing) setTimeout(() => this.takeKeySink(true), 0);
+      if (!this._composing) setTimeout(() => this.takeKeySink(), 0);
     });
     this.scroller.append(this.canvas, this.keySink);
     this.scroller.style.display = 'none';
@@ -300,14 +295,10 @@ export class Grid {
 
   // 取走 key-sink 里已产生的文本（普通打字或输入法提交的结果），作为编辑初值进入编辑；取完清空。
   // 多个事件会重复调用（input / compositionend / keyup），靠"值为空即忽略"天然去重。
-  takeKeySink(traced) {
+  takeKeySink() {
     const text = this.keySink.value;
     if (!text) return;
     this.keySink.value = '';
-    if (traced) {
-      this._sinkTrace = (this._sinkTrace || '') + 'TAKE[' + text + '] ';
-      this.showSinkTrace();
-    }
     if (!this.sel) return;
     this.hooks.onEditRequest?.(this.sel.fr, this.sel.fc, text);
   }
@@ -332,12 +323,6 @@ export class Grid {
       : sr.top + HEADER_H + this.frozenHeight() + bp * this.rh() - this.scroller.scrollTop;
     this.keySink.style.left = Math.round(left) + 'px';
     this.keySink.style.top = Math.round(top) + 'px';
-  }
-
-  // 临时诊断：把 key-sink 收到的事件序列显示在状态栏（定位输入法提交路径用；问题确认后可删）。
-  showSinkTrace() {
-    const el = document.getElementById('st-msg');
-    if (el && this._sinkTrace) el.textContent = '输入事件: ' + this._sinkTrace;
   }
 
   // 冻结（只读）闸门：所有会改动数据的入口（编辑/删除/粘贴/填充/插删行列/排序/替换）
