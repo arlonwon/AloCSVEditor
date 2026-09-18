@@ -14,6 +14,18 @@ Windows 上的轻量现代 CSV 编辑器。绿色免安装，双击即用；自�
 
 ---
 
+## 界面 / Screenshots
+
+亮色主题（Light theme）——注意 `订单编号` 里的 `010013`：前导零原样保留，Excel 会把它改成 `10013`：
+
+![AloCsvEditor 亮色主题界面 / CSV editor for Windows, light theme](docs/images/main-light.png)
+
+暗色主题（Dark theme）：
+
+![AloCsvEditor 暗色主题界面 / CSV editor for Windows, dark theme](docs/images/main-dark.png)
+
+---
+
 ## 下载
 
 直接下载可运行的程序（**无需安装、无需编译**）：
